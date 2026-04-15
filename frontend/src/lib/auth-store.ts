@@ -8,6 +8,8 @@ import {
   clearAccessToken,
   getAccessToken,
   setAccessToken,
+  getActiveBranchId,
+  setActiveBranchId,
 } from "./api/auth-storage";
 
 interface AuthState {
@@ -55,6 +57,20 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true });
         try {
           const user = await authApi.me();
+          // Ensure we have an active branch ID
+          if (!getActiveBranchId()) {
+            try {
+              // Attempt to fetch branches and set the first one as active
+              const { branchesApi } = await import("./api/services");
+              const branchesRes = await branchesApi.list({ page: 1, limit: 1 });
+              if (branchesRes.data && branchesRes.data.length > 0 && typeof branchesRes.data[0].id === 'string') {
+                setActiveBranchId(branchesRes.data[0].id);
+              }
+            } catch (err) {
+              console.warn("Could not auto-set branch id", err);
+            }
+          }
+
           set({
             user,
             accessToken: token,
@@ -78,6 +94,20 @@ export const useAuthStore = create<AuthState>()(
           const session = await authApi.login({ identifier, password });
 
           get().setSession(session);
+
+          // Ensure active branch is set post login
+          if (!getActiveBranchId()) {
+            try {
+              const { branchesApi } = await import("./api/services");
+              const branchesRes = await branchesApi.list({ page: 1, limit: 1 });
+              if (branchesRes.data && branchesRes.data.length > 0 && typeof branchesRes.data[0].id === 'string') {
+                setActiveBranchId(branchesRes.data[0].id);
+              }
+            } catch (err) {
+              console.warn("Could not auto-set branch id on login", err);
+            }
+          }
+
           set({ isLoading: false });
           return { success: true };
         } catch (error) {
