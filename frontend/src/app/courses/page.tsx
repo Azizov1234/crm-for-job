@@ -105,7 +105,7 @@ export default function CoursesPage() {
 
   useEffect(() => {
     void loadCourses();
-  }, [status]);
+  }, [status, search]);
 
   async function createCourse() {
     const parsedPrice = Number(draft.price);

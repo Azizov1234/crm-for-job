@@ -75,7 +75,7 @@ export default function AttendancePage() {
 
   useEffect(() => {
     void loadData();
-  }, []);
+  }, [status, search]);
 
   async function createAttendance() {
     if (!draft.groupId || !draft.studentId || !draft.date) {

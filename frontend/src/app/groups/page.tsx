@@ -89,7 +89,7 @@ export default function GroupsPage() {
 
   useEffect(() => {
     void loadGroups();
-  }, [status]);
+  }, [status, search]);
 
   useEffect(() => {
     void loadOptions();

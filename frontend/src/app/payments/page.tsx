@@ -86,7 +86,7 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     void loadData();
-  }, [status]); // Reloads when filter status changes
+  }, [status, search]);
 
   async function createPayment() {
     if (!draft.studentId || !draft.amount || !draft.month || !draft.year) {

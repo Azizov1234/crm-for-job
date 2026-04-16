@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/auth-store";
-import { checkBackendConnection, getResolvedApiBaseUrl } from "@/lib/api/client";
+import { checkBackendConnection } from "@/lib/api/client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,7 +19,6 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [checkingBackend, setCheckingBackend] = useState(true);
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
-  const [apiBaseUrl, setApiBaseUrl] = useState(getResolvedApiBaseUrl());
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -35,7 +34,6 @@ export default function LoginPage() {
       const ok = await checkBackendConnection();
       if (!mounted) return;
       setBackendOnline(ok);
-      setApiBaseUrl(getResolvedApiBaseUrl());
       setCheckingBackend(false);
     }
 
@@ -49,8 +47,7 @@ export default function LoginPage() {
     event.preventDefault();
 
     if (backendOnline === false) {
-      toast.error("Backend bilan aloqa yo'q. API manzilini tekshiring.");
-      return;
+      toast.warning("Backend holati noaniq. Login urinishini davom ettiramiz.");
     }
 
     const result = await login(identifier, password);
@@ -67,7 +64,6 @@ export default function LoginPage() {
     setCheckingBackend(true);
     const ok = await checkBackendConnection();
     setBackendOnline(ok);
-    setApiBaseUrl(getResolvedApiBaseUrl());
     setCheckingBackend(false);
   }
 
@@ -158,10 +154,6 @@ export default function LoginPage() {
               )}
             </Button>
           </form>
-
-          <p className="mt-3 break-all text-[11px] text-[#8a95b3]">
-            API: <span className="font-mono">{apiBaseUrl}</span>
-          </p>
         </CardContent>
       </Card>
     </div>

@@ -76,7 +76,7 @@ export default function ErrorLogsPage() {
 
   useEffect(() => {
     void loadLogs();
-  }, []);
+  }, [search, method, statusCode]);
 
   async function openLogDetails(id: string) {
     try {

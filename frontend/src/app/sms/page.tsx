@@ -117,7 +117,7 @@ export default function SmsPage() {
 
   useEffect(() => {
     void loadData();
-  }, []);
+  }, [search]);
 
   async function sendSingle() {
     if (!singleDraft.recipientPhone.trim() || !singleDraft.message.trim()) {

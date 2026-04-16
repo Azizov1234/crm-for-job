@@ -26,15 +26,15 @@ export function SearchToolbar({
   return (
     <div
       style={{
-        background: "#ffffff",
-        border: "1px solid #e4e9f5",
+        background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
+        border: "1px solid #dce5fa",
         borderRadius: 14,
         padding: "10px 14px",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
         gap: 12,
-        boxShadow: "0 2px 10px -4px rgba(30,50,120,0.08)",
+        boxShadow: "0 8px 20px -14px rgba(49,84,184,0.35)",
       }}
     >
       {/* Search */}
@@ -62,8 +62,8 @@ export function SearchToolbar({
             paddingLeft: 34,
             paddingRight: 12,
             borderRadius: 10,
-            border: "1.5px solid #e0e7f5",
-            background: "#f7f9ff",
+            border: "1.5px solid #dbe4f8",
+            background: "#f6f9ff",
             fontSize: 13,
             color: "#1e2340",
             outline: "none",
@@ -93,11 +93,11 @@ export function SearchToolbar({
               height: 36,
               padding: "0 14px",
               borderRadius: 10,
-              border: "1.5px solid #e0e7f5",
-              background: "#f7f9ff",
+              border: "1.5px solid #d5e0fb",
+              background: "linear-gradient(180deg, #f7faff 0%, #edf2ff 100%)",
               fontSize: 13,
-              fontWeight: 500,
-              color: "#4a5578",
+              fontWeight: 600,
+              color: "#3e4faa",
               cursor: "pointer",
               outline: "none",
             }}

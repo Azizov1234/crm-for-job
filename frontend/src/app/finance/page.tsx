@@ -102,7 +102,7 @@ export default function FinancePage() {
 
   useEffect(() => {
     void loadData();
-  }, []);
+  }, [search]);
 
   async function createExpense() {
     if (!draft.title.trim() || !draft.category.trim() || !draft.amount || !draft.expenseDate) {

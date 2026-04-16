@@ -5,57 +5,31 @@ import {
   getAccessToken,
 } from "./auth-storage";
 
-const CONFIGURED_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ?? "";
-const DEPLOY_BACKEND_PORT =
-  process.env.NEXT_PUBLIC_BACKEND_PORT?.trim() || "4646";
-const LOCAL_API_BASE_URLS = [
-  "http://localhost:9090/api/v1",
-  "http://localhost:4545/api/v1",
-  "http://localhost:3000/api/v1",
-];
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const DEFAULT_API_ORIGIN = "http://localhost:9090";
+const CONFIGURED_API_URL = process.env.NEXT_PUBLIC_API_URL?.trim() ?? "";
 
-const normalizeBaseUrl = (value: string) => value.trim().replace(/\/+$/, "");
+const normalizeBaseUrl = (value: string) => {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
 
-const getApiCandidates = () => {
-  const candidates: string[] = [];
-  const push = (candidate: string | undefined | null) => {
-    if (!candidate) return;
-    const normalized = normalizeBaseUrl(candidate);
-    if (!normalized) return;
-    if (!candidates.includes(normalized)) {
-      candidates.push(normalized);
+  try {
+    const url = new URL(trimmed);
+    const normalizedPath = url.pathname.replace(/\/+$/, "");
+
+    // Keep explicit API paths as-is, otherwise default to /api/v1.
+    if (!normalizedPath || normalizedPath === "/") {
+      url.pathname = "/api/v1";
+      return url.toString().replace(/\/+$/, "");
     }
-  };
 
-  push(CONFIGURED_API_BASE_URL);
-
-  if (typeof window !== "undefined") {
-    const { origin, protocol, hostname } = window.location;
-    const isLocal = LOCAL_HOSTS.has(hostname);
-
-    // Primary production-safe candidates (no localhost fallback on remote host).
-    push(`${origin}/api/v1`);
-    push(`${protocol}//${hostname}:${DEPLOY_BACKEND_PORT}/api/v1`);
-
-    if (isLocal) {
-      LOCAL_API_BASE_URLS.forEach(push);
-    }
-  } else {
-    LOCAL_API_BASE_URLS.forEach(push);
+    return `${url.origin}${normalizedPath}`;
+  } catch {
+    return trimmed;
   }
-
-  if (!candidates.length) {
-    LOCAL_API_BASE_URLS.forEach(push);
-  }
-
-  return candidates;
 };
 
-const API_BASE_URL = getApiCandidates()[0];
-let resolvedApiBaseUrl: string | null = CONFIGURED_API_BASE_URL
-  ? normalizeBaseUrl(CONFIGURED_API_BASE_URL)
-  : null;
+const API_BASE_URL = normalizeBaseUrl(CONFIGURED_API_URL || DEFAULT_API_ORIGIN);
+let resolvedApiBaseUrl: string | null = API_BASE_URL;
 
 type RequestOptions = RequestInit & {
   skipAuth?: boolean;
@@ -110,28 +84,7 @@ async function probeApiBaseUrl(baseUrl: string, timeoutMs = 900): Promise<boolea
 }
 
 async function resolveApiBaseUrl(): Promise<string> {
-  const candidates = getApiCandidates();
-  if (resolvedApiBaseUrl && candidates.includes(resolvedApiBaseUrl)) {
-    return resolvedApiBaseUrl;
-  }
-
-  try {
-    const candidate = await Promise.any(
-      candidates.map(async (baseUrl) => {
-        const ok = await probeApiBaseUrl(baseUrl);
-        if (!ok) {
-          throw new Error(`Unavailable: ${baseUrl}`);
-        }
-        return baseUrl;
-      }),
-    );
-
-    resolvedApiBaseUrl = candidate;
-    return candidate;
-  } catch {
-    resolvedApiBaseUrl = candidates[0];
-    return resolvedApiBaseUrl;
-  }
+  return resolvedApiBaseUrl ?? API_BASE_URL;
 }
 
 export async function apiRequest<T>(
@@ -170,27 +123,12 @@ export async function apiRequest<T>(
 }
 
 export async function checkBackendConnection(timeoutMs = 5000): Promise<boolean> {
-  const candidates = getApiCandidates();
-
-  if (resolvedApiBaseUrl) {
-    const ok = await probeApiBaseUrl(resolvedApiBaseUrl, timeoutMs);
-    if (ok) return true;
-    resolvedApiBaseUrl = null;
-  }
-
-  const probes = await Promise.all(
-    candidates.map(async (candidate) => ({
-      candidate,
-      ok: await probeApiBaseUrl(candidate, timeoutMs),
-    })),
-  );
-  const connected = probes.find((probe) => probe.ok);
+  const baseUrl = await resolveApiBaseUrl();
+  const connected = await probeApiBaseUrl(baseUrl, timeoutMs);
   if (connected) {
-    resolvedApiBaseUrl = connected.candidate;
-    return true;
+    resolvedApiBaseUrl = baseUrl;
   }
-
-  return false;
+  return connected;
 }
 
 export function getResolvedApiBaseUrl() {

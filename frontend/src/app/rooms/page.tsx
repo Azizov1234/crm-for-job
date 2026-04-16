@@ -93,7 +93,7 @@ export default function RoomsPage() {
 
   useEffect(() => {
     void loadRooms();
-  }, [status]);
+  }, [status, search]);
 
   async function createRoom() {
     const parsedCapacity = Number(draft.capacity);
