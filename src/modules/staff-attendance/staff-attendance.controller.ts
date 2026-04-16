@@ -1,4 +1,4 @@
-﻿import {
+import {
   Body,
   Controller,
   Get,
@@ -10,9 +10,12 @@
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/role';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/role.guard';
 import type { RequestUser } from '../../common/interfaces/request-user.interface';
 import {
   paginatedResponse,
@@ -26,7 +29,7 @@ import { StaffAttendanceService } from './staff-attendance.service';
 
 @ApiTags('Staff Attendance')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('staff-attendance')
 export class StaffAttendanceController {
   constructor(
@@ -34,6 +37,7 @@ export class StaffAttendanceController {
   ) {}
 
   @Post()
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   @ApiOperation({ summary: 'Xodim davomati belgilash' })
   async create(
     @Body() dto: CreateStaffAttendanceDto,
@@ -45,6 +49,7 @@ export class StaffAttendanceController {
   }
 
   @Post('bulk')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   @ApiOperation({ summary: 'Xodim davomatini ommaviy saqlash' })
   async bulkCreate(
     @Body() dto: BulkStaffAttendanceDto,
@@ -60,6 +65,7 @@ export class StaffAttendanceController {
   }
 
   @Get()
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({ summary: 'Xodim davomati royxati' })
   async findAll(
     @Query() query: StaffAttendanceQueryDto,
@@ -70,6 +76,7 @@ export class StaffAttendanceController {
   }
 
   @Get('stats')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({ summary: 'Xodim davomati statistikasi' })
   async stats(
     @Query() query: StaffAttendanceQueryDto,
@@ -80,6 +87,7 @@ export class StaffAttendanceController {
   }
 
   @Patch(':id')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   @ApiOperation({ summary: 'Xodim davomatini yangilash' })
   async update(
     @Param('id') id: string,
@@ -97,6 +105,7 @@ export class StaffAttendanceController {
   }
 
   @Patch(':id/delete')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   @ApiOperation({ summary: 'Xodim davomatini soft delete qilish' })
   async softDelete(
     @Param('id') id: string,

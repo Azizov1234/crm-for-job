@@ -25,7 +25,7 @@ import { Status } from "@/lib/types";
 import { formatDate } from "@/lib/utils-helpers";
 
 const STATUS_OPTIONS: Status[] = ["ACTIVE", "INACTIVE", "ARCHIVED", "DELETED"];
-const MUTABLE_STATUS_OPTIONS: Status[] = ["ACTIVE", "INACTIVE", "ARCHIVED"];
+const MUTABLE_STATUS_OPTIONS: Status[] = ["ACTIVE", "INACTIVE", "ARCHIVED", "DELETED"];
 
 type BranchRow = {
   id: string;
@@ -103,6 +103,15 @@ export default function BranchesPage() {
   const [editDraft, setEditDraft] = useState<BranchDraft>(EMPTY_BRANCH_DRAFT);
 
   const totalCount = useMemo(() => branches.length, [branches]);
+  const editStatusOptions = useMemo(() => {
+    if (
+      editingInitialStatus &&
+      !MUTABLE_STATUS_OPTIONS.includes(editingInitialStatus)
+    ) {
+      return [...MUTABLE_STATUS_OPTIONS, editingInitialStatus];
+    }
+    return MUTABLE_STATUS_OPTIONS;
+  }, [editingInitialStatus]);
 
   async function loadBranches() {
     try {
@@ -194,7 +203,9 @@ export default function BranchesPage() {
         logoUrl: editDraft.logoUrl.trim() || undefined,
       });
 
-      if (editDraft.status !== editingInitialStatus) {
+      if (editDraft.status !== editingInitialStatus && editDraft.status === "DELETED") {
+        await branchesApi.remove(editingBranchId);
+      } else if (editDraft.status !== editingInitialStatus) {
         await branchesApi.changeStatus(editingBranchId, editDraft.status);
       }
 
@@ -299,6 +310,7 @@ export default function BranchesPage() {
                     variant="ghost"
                     size="sm"
                     className="text-blue-700 hover:bg-[#eef2ff]"
+                    disabled={branch.status === "DELETED"}
                     onClick={() => openEditBranch(branch.id)}
                   >
                     <Pencil className="h-4 w-4" />
@@ -447,7 +459,7 @@ export default function BranchesPage() {
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
-                    {MUTABLE_STATUS_OPTIONS.map((option) => (
+                    {editStatusOptions.map((option) => (
                       <SelectItem key={option} value={option}>
                         {option}
                       </SelectItem>

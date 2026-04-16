@@ -27,6 +27,44 @@ export class StaffAttendanceService {
     return date;
   }
 
+  private ensureManagePermission(user: RequestUser) {
+    if (user.role === UserRole.STAFF) {
+      throw new BadRequestException(
+        'Xodimlar davomatini boshqarish uchun ruxsat yoq',
+      );
+    }
+  }
+
+  private async resolveScopedStaffId(
+    user: RequestUser,
+    requestedStaffId?: string,
+  ) {
+    if (user.role !== UserRole.STAFF) {
+      return requestedStaffId;
+    }
+
+    const ownStaff = await this.prisma.staffProfile.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        userId: user.id,
+        status: { not: Status.DELETED },
+      },
+      select: { id: true },
+    });
+
+    if (!ownStaff) {
+      throw new BadRequestException('Siz uchun staff profile topilmadi');
+    }
+
+    if (requestedStaffId && requestedStaffId !== ownStaff.id) {
+      throw new BadRequestException(
+        'Faqat ozingizning davomatingizni korishingiz mumkin',
+      );
+    }
+
+    return ownStaff.id;
+  }
+
   private async findScopedStaffAttendance(id: string, user: RequestUser) {
     const attendance = await this.prisma.staffAttendance.findFirst({
       where: {
@@ -34,9 +72,15 @@ export class StaffAttendanceService {
         organizationId: user.organizationId,
         ...(user.role === UserRole.SUPER_ADMIN
           ? {}
-          : user.branchId
-            ? { branchId: user.branchId }
-            : {}),
+          : user.role === UserRole.STAFF
+            ? {
+                staff: {
+                  userId: user.id,
+                },
+              }
+            : user.branchId
+              ? { branchId: user.branchId }
+              : {}),
       },
     });
 
@@ -52,6 +96,8 @@ export class StaffAttendanceService {
     user: RequestUser,
     request?: Request,
   ) {
+    this.ensureManagePermission(user);
+
     const branchId = this.branchScopeService.ensureBranchForCreate(
       user,
       dto.branchId,
@@ -113,6 +159,8 @@ export class StaffAttendanceService {
     user: RequestUser,
     request?: Request,
   ) {
+    this.ensureManagePermission(user);
+
     const results: unknown[] = [];
     for (const record of dto.records) {
       const data = await this.create(record, user, request);
@@ -124,6 +172,7 @@ export class StaffAttendanceService {
 
   async findAll(query: StaffAttendanceQueryDto, user: RequestUser) {
     const { page, limit, skip, take } = parsePagination(query);
+    const scopedStaffId = await this.resolveScopedStaffId(user, query.staffId);
 
     const where: Record<string, unknown> = {
       organizationId: user.organizationId,
@@ -136,7 +185,7 @@ export class StaffAttendanceService {
           : {}),
       ...(query.includeDeleted ? {} : { status: { not: Status.DELETED } }),
       ...(query.status ? { status: query.status } : {}),
-      ...(query.staffId ? { staffId: query.staffId } : {}),
+      ...(scopedStaffId ? { staffId: scopedStaffId } : {}),
       ...(query.attendanceStatus
         ? { attendanceStatus: query.attendanceStatus }
         : {}),
@@ -156,8 +205,16 @@ export class StaffAttendanceService {
         where,
         include: {
           staff: {
-            include: {
-              user: true,
+            select: {
+              id: true,
+              user: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  phone: true,
+                  email: true,
+                },
+              },
             },
           },
           markedBy: {
@@ -183,6 +240,8 @@ export class StaffAttendanceService {
   }
 
   async stats(query: StaffAttendanceQueryDto, user: RequestUser) {
+    const scopedStaffId = await this.resolveScopedStaffId(user, query.staffId);
+
     const where: Record<string, unknown> = {
       organizationId: user.organizationId,
       ...(user.role === UserRole.SUPER_ADMIN
@@ -193,7 +252,7 @@ export class StaffAttendanceService {
           ? { branchId: user.branchId }
           : {}),
       status: { not: Status.DELETED },
-      ...(query.staffId ? { staffId: query.staffId } : {}),
+      ...(scopedStaffId ? { staffId: scopedStaffId } : {}),
       ...(query.from || query.to
         ? {
             date: {
@@ -229,6 +288,8 @@ export class StaffAttendanceService {
     user: RequestUser,
     request?: Request,
   ) {
+    this.ensureManagePermission(user);
+
     const existing = await this.findScopedStaffAttendance(id, user);
     const nextBranchId =
       dto.branchId !== undefined
@@ -285,6 +346,8 @@ export class StaffAttendanceService {
   }
 
   async softDelete(id: string, user: RequestUser, request?: Request) {
+    this.ensureManagePermission(user);
+
     const existing = await this.findScopedStaffAttendance(id, user);
 
     const data = await this.prisma.staffAttendance.update({

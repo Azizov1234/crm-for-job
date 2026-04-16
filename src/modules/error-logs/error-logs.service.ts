@@ -1,7 +1,8 @@
-﻿import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Status } from '@prisma/client';
 import type { RequestUser } from '../../common/interfaces/request-user.interface';
 import { parsePagination } from '../../common/utils/query.util';
+import { redactSensitiveData } from '../../common/utils/redact.util';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { ErrorLogQueryDto } from './dto/error-log-query.dto';
 
@@ -70,7 +71,7 @@ export class ErrorLogsService {
     ]);
 
     return {
-      data,
+      data: data.map((item) => redactSensitiveData(item)),
       meta: {
         page,
         limit,
@@ -92,8 +93,23 @@ export class ErrorLogsService {
             : {}),
       },
       include: {
-        user: true,
-        branch: true,
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            status: true,
+          },
+        },
+        branch: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            status: true,
+          },
+        },
       },
     });
 
@@ -101,6 +117,6 @@ export class ErrorLogsService {
       throw new NotFoundException('Error log topilmadi');
     }
 
-    return entity;
+    return redactSensitiveData(entity);
   }
 }

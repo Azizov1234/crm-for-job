@@ -117,7 +117,7 @@ const NAV_SECTIONS: Section[] = [
         href: "/timetable",
         label: "Dars jadvali",
         icon: CalendarDays,
-        roles: ["SUPER_ADMIN", "ADMIN", "TEACHER", "STUDENT"],
+        roles: ["SUPER_ADMIN", "ADMIN", "TEACHER", "STUDENT", "STAFF"],
       },
     ],
   },

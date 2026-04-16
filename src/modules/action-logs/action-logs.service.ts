@@ -1,13 +1,18 @@
-﻿import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Status } from '@prisma/client';
 import { parsePagination } from '../../common/utils/query.util';
 import type { RequestUser } from '../../common/interfaces/request-user.interface';
+import { redactSensitiveData } from '../../common/utils/redact.util';
 import { ActionLogQueryDto } from './dto/action-log-query.dto';
 import { PrismaService } from '../../core/prisma/prisma.service';
 
 @Injectable()
 export class ActionLogsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private sanitizeLogs<T>(items: T[]): T[] {
+    return items.map((item) => redactSensitiveData(item));
+  }
 
   async findAll(query: ActionLogQueryDto, user: RequestUser) {
     const { page, limit, skip, take } = parsePagination(query);
@@ -71,7 +76,7 @@ export class ActionLogsService {
     ]);
 
     return {
-      data,
+      data: this.sanitizeLogs(data),
       meta: {
         page,
         limit,
@@ -93,8 +98,23 @@ export class ActionLogsService {
             : {}),
       },
       include: {
-        user: true,
-        branch: true,
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            status: true,
+          },
+        },
+        branch: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            status: true,
+          },
+        },
       },
     });
 
@@ -102,6 +122,6 @@ export class ActionLogsService {
       throw new NotFoundException('Action log topilmadi');
     }
 
-    return entity;
+    return redactSensitiveData(entity);
   }
 }

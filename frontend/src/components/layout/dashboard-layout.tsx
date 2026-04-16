@@ -68,7 +68,7 @@ const ROLE_ROUTE_ACCESS: Record<Role, string[]> = {
   ],
   STUDENT: ["/dashboard", "/timetable", "/attendance", "/ratings", "/payments"],
   PARENT: ["/dashboard", "/payments"],
-  STAFF: ["/dashboard", "/staff-attendance"],
+  STAFF: ["/dashboard", "/staff-attendance", "/timetable"],
 };
 
 function isAllowedPath(role: Role, pathname: string) {

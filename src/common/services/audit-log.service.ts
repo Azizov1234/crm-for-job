@@ -1,6 +1,7 @@
-﻿import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ActionType } from '@prisma/client';
 import { PrismaService } from '../../core/prisma/prisma.service';
+import { redactSensitiveData } from '../utils/redact.util';
 
 export type ActionLogInput = {
   organizationId: string;
@@ -47,8 +48,8 @@ export class AuditLogService {
           entityType: payload.entityType,
           entityId: payload.entityId ?? null,
           description: payload.description,
-          oldData: payload.oldData as never,
-          newData: payload.newData as never,
+          oldData: redactSensitiveData(payload.oldData) as never,
+          newData: redactSensitiveData(payload.newData) as never,
           ipAddress: payload.ipAddress ?? null,
           userAgent: payload.userAgent ?? null,
         },
@@ -72,7 +73,7 @@ export class AuditLogService {
           statusCode: payload.statusCode ?? null,
           ipAddress: payload.ipAddress ?? null,
           userAgent: payload.userAgent ?? null,
-          meta: payload.meta as never,
+          meta: redactSensitiveData(payload.meta) as never,
         },
       });
     } catch (error) {
