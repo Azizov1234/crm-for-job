@@ -1,4 +1,8 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   UploadApiErrorResponse,
   UploadApiOptions,
@@ -41,10 +45,16 @@ export class CloudinaryService {
           result?: UploadApiResponse,
         ) => {
           if (error) {
+            const message =
+              error.message || 'Cloudinaryga yuklash vaqtida xatolik.';
+            const httpCode = Number(error.http_code ?? 0);
+
+            if (httpCode >= 400 && httpCode < 500) {
+              return reject(new BadRequestException(message));
+            }
+
             return reject(
-              new Error(
-                error.message || 'Cloudinaryga yuklash vaqtida xatolik.',
-              ),
+              new ServiceUnavailableException(message),
             );
           }
 

@@ -24,15 +24,46 @@ function readPortFromEnvFile(): number | null {
   }
 }
 
+function parseCorsOrigins(): string[] {
+  const raw = process.env.CORS_ORIGINS?.trim();
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+}
+
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
+  const corsOrigins = parseCorsOrigins();
+  const allowAllOrigins = corsOrigins.length === 0 || corsOrigins.includes('*');
 
   app.use(helmet());
   app.enableCors({
-    origin: '*',
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      const normalized = origin.replace(/\/+$/, '');
+      if (
+        allowAllOrigins ||
+        corsOrigins.some((allowedOrigin) => allowedOrigin === normalized)
+      ) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error('Not allowed by CORS'));
+    },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-branch-id'],
+    credentials: !allowAllOrigins,
   });
 
   app.useGlobalPipes(
@@ -79,6 +110,11 @@ async function bootstrap() {
 
   await app.listen(port);
   logger.log(`Server port: ${port}`);
+  logger.log(
+    `CORS origins: ${
+      allowAllOrigins ? 'ALL (env CORS_ORIGINS not set)' : corsOrigins.join(', ')
+    }`,
+  );
 }
 
 void bootstrap(); 

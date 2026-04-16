@@ -6,17 +6,56 @@ import {
 } from "./auth-storage";
 
 const CONFIGURED_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ?? "";
-const DEFAULT_API_BASE_URLS = [
+const DEPLOY_BACKEND_PORT =
+  process.env.NEXT_PUBLIC_BACKEND_PORT?.trim() || "4646";
+const LOCAL_API_BASE_URLS = [
   "http://localhost:9090/api/v1",
   "http://localhost:4545/api/v1",
   "http://localhost:3000/api/v1",
 ];
-const API_CANDIDATES = CONFIGURED_API_BASE_URL
-  ? [CONFIGURED_API_BASE_URL]
-  : DEFAULT_API_BASE_URLS;
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-const API_BASE_URL = API_CANDIDATES[0];
-let resolvedApiBaseUrl: string | null = CONFIGURED_API_BASE_URL || null;
+const normalizeBaseUrl = (value: string) => value.trim().replace(/\/+$/, "");
+
+const getApiCandidates = () => {
+  const candidates: string[] = [];
+  const push = (candidate: string | undefined | null) => {
+    if (!candidate) return;
+    const normalized = normalizeBaseUrl(candidate);
+    if (!normalized) return;
+    if (!candidates.includes(normalized)) {
+      candidates.push(normalized);
+    }
+  };
+
+  push(CONFIGURED_API_BASE_URL);
+
+  if (typeof window !== "undefined") {
+    const { origin, protocol, hostname } = window.location;
+    const isLocal = LOCAL_HOSTS.has(hostname);
+
+    // Primary production-safe candidates (no localhost fallback on remote host).
+    push(`${origin}/api/v1`);
+    push(`${protocol}//${hostname}:${DEPLOY_BACKEND_PORT}/api/v1`);
+
+    if (isLocal) {
+      LOCAL_API_BASE_URLS.forEach(push);
+    }
+  } else {
+    LOCAL_API_BASE_URLS.forEach(push);
+  }
+
+  if (!candidates.length) {
+    LOCAL_API_BASE_URLS.forEach(push);
+  }
+
+  return candidates;
+};
+
+const API_BASE_URL = getApiCandidates()[0];
+let resolvedApiBaseUrl: string | null = CONFIGURED_API_BASE_URL
+  ? normalizeBaseUrl(CONFIGURED_API_BASE_URL)
+  : null;
 
 type RequestOptions = RequestInit & {
   skipAuth?: boolean;
@@ -71,13 +110,14 @@ async function probeApiBaseUrl(baseUrl: string, timeoutMs = 900): Promise<boolea
 }
 
 async function resolveApiBaseUrl(): Promise<string> {
-  if (resolvedApiBaseUrl) {
+  const candidates = getApiCandidates();
+  if (resolvedApiBaseUrl && candidates.includes(resolvedApiBaseUrl)) {
     return resolvedApiBaseUrl;
   }
 
   try {
     const candidate = await Promise.any(
-      API_CANDIDATES.map(async (baseUrl) => {
+      candidates.map(async (baseUrl) => {
         const ok = await probeApiBaseUrl(baseUrl);
         if (!ok) {
           throw new Error(`Unavailable: ${baseUrl}`);
@@ -89,7 +129,7 @@ async function resolveApiBaseUrl(): Promise<string> {
     resolvedApiBaseUrl = candidate;
     return candidate;
   } catch {
-    resolvedApiBaseUrl = API_CANDIDATES[0];
+    resolvedApiBaseUrl = candidates[0];
     return resolvedApiBaseUrl;
   }
 }
@@ -130,6 +170,8 @@ export async function apiRequest<T>(
 }
 
 export async function checkBackendConnection(timeoutMs = 5000): Promise<boolean> {
+  const candidates = getApiCandidates();
+
   if (resolvedApiBaseUrl) {
     const ok = await probeApiBaseUrl(resolvedApiBaseUrl, timeoutMs);
     if (ok) return true;
@@ -137,7 +179,7 @@ export async function checkBackendConnection(timeoutMs = 5000): Promise<boolean>
   }
 
   const probes = await Promise.all(
-    API_CANDIDATES.map(async (candidate) => ({
+    candidates.map(async (candidate) => ({
       candidate,
       ok: await probeApiBaseUrl(candidate, timeoutMs),
     })),
