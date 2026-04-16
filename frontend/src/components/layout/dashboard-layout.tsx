@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { TopNav } from "./top-nav";
 import { useAuthStore } from "@/lib/auth-store";
+import { BRANCH_CHANGED_EVENT } from "@/lib/api/auth-storage";
 import { Role } from "@/lib/types";
 
 const ROLE_ROUTE_ACCESS: Record<Role, string[]> = {
@@ -90,6 +91,7 @@ export function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { isAuthenticated, isLoading, bootstrap, user } = useAuthStore();
+  const [branchRenderKey, setBranchRenderKey] = useState(0);
 
   useEffect(() => {
     void bootstrap();
@@ -107,6 +109,17 @@ export function DashboardLayout({
     }
   }, [isAuthenticated, isLoading, pathname, router, user]);
 
+  useEffect(() => {
+    const onBranchChanged = () => {
+      setBranchRenderKey((prev) => prev + 1);
+    };
+
+    window.addEventListener(BRANCH_CHANGED_EVENT, onBranchChanged);
+    return () => {
+      window.removeEventListener(BRANCH_CHANGED_EVENT, onBranchChanged);
+    };
+  }, []);
+
   if (isLoading || !isAuthenticated) {
     return (
       <div className="soft-page min-h-screen flex items-center justify-center">
@@ -121,7 +134,9 @@ export function DashboardLayout({
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <TopNav title={title} description={description} />
         <main className="flex-1 overflow-y-auto px-5 py-4 md:px-7 md:py-5">
-          <div className="mx-auto w-full max-w-[1220px] space-y-4">{children}</div>
+          <div key={branchRenderKey} className="mx-auto w-full max-w-[1220px] space-y-4">
+            {children}
+          </div>
         </main>
       </div>
     </div>

@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, Languages, LogOut, Settings2 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth-store";
 import { branchesApi } from "@/lib/api/services";
 import { ApiError } from "@/lib/api/client";
-import { getActiveBranchId, setActiveBranchId } from "@/lib/api/auth-storage";
+import {
+  BRANCH_CHANGED_EVENT,
+  BRANCHES_UPDATED_EVENT,
+  getActiveBranchId,
+  setActiveBranchId,
+} from "@/lib/api/auth-storage";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,38 +43,69 @@ export function TopNav({ title, description }: TopNavProps) {
   const [activeBranchId, setBranchId] = useState<string>("");
   const [activeLanguage, setActiveLanguage] = useState("uz");
 
-  useEffect(() => {
-    if (!user) return;
+  const loadBranches = useCallback(async () => {
+    if (!user) {
+      setBranchOptions([]);
+      setBranchId("");
+      return;
+    }
 
-    const boot = async () => {
-      try {
-        const response = await branchesApi.list({ page: 1, limit: 100, status: "ACTIVE" });
-        const options = (response.data as Array<{ id: string; name: string }>).map((item) => ({
-          id: item.id,
-          name: item.name,
-        }));
-        setBranchOptions(options);
+    try {
+      const response = await branchesApi.list({ page: 1, limit: 100, status: "ACTIVE" });
+      const options = (response.data as Array<{ id: string; name: string }>).map((item) => ({
+        id: item.id,
+        name: item.name,
+      }));
+      setBranchOptions(options);
 
-        const persisted = getActiveBranchId();
-        const fallback = user.branchId ?? options[0]?.id ?? "";
-        const selected =
-          persisted && options.some((item) => item.id === persisted) ? persisted : fallback;
-        setBranchId(selected);
-        if (selected) setActiveBranchId(selected);
-      } catch (error) {
-        if (!(error instanceof ApiError)) {
-          setBranchOptions([]);
-        }
-        if (user.branchId) {
-          setBranchOptions([{ id: user.branchId, name: "Asosiy filial" }]);
-          setBranchId(user.branchId);
-          setActiveBranchId(user.branchId);
-        }
+      const persisted = getActiveBranchId();
+      const fallback = user.branchId ?? options[0]?.id ?? "";
+      const selected =
+        persisted && options.some((item) => item.id === persisted) ? persisted : fallback;
+
+      setBranchId(selected);
+      if (selected && selected !== persisted) {
+        setActiveBranchId(selected);
       }
+    } catch (error) {
+      setBranchOptions([]);
+
+      if (user.branchId) {
+        setBranchOptions([{ id: user.branchId, name: "Asosiy filial" }]);
+        setBranchId(user.branchId);
+        setActiveBranchId(user.branchId);
+        return;
+      }
+
+      setBranchId("");
+
+      if (error instanceof ApiError) {
+        // Keep branch picker stable on API errors.
+      }
+    }
+  }, [user]);
+
+  useEffect(() => {
+    void loadBranches();
+  }, [loadBranches]);
+
+  useEffect(() => {
+    const onBranchesUpdated = () => {
+      void loadBranches();
+    };
+    const onBranchChanged = () => {
+      const current = getActiveBranchId() ?? "";
+      setBranchId(current);
     };
 
-    void boot();
-  }, [user]);
+    window.addEventListener(BRANCHES_UPDATED_EVENT, onBranchesUpdated);
+    window.addEventListener(BRANCH_CHANGED_EVENT, onBranchChanged);
+
+    return () => {
+      window.removeEventListener(BRANCHES_UPDATED_EVENT, onBranchesUpdated);
+      window.removeEventListener(BRANCH_CHANGED_EVENT, onBranchChanged);
+    };
+  }, [loadBranches]);
 
   const activeBranchLabel = useMemo(() => {
     if (!activeBranchId) return "Asosiy filial";
@@ -167,6 +203,7 @@ export function TopNav({ title, description }: TopNavProps) {
                 <DropdownMenuItem
                   key={branch.id}
                   onClick={() => {
+                    if (branch.id === activeBranchId) return;
                     setBranchId(branch.id);
                     setActiveBranchId(branch.id);
                   }}
