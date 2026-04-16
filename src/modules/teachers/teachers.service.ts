@@ -35,9 +35,13 @@ export class TeachersService {
       actor,
       dto.branchId,
     );
-    await this.entityCheckService.ensureBranchExists(branchId, actor.organizationId, {
-      actor,
-    });
+    await this.entityCheckService.ensureBranchExists(
+      branchId,
+      actor.organizationId,
+      {
+        actor,
+      },
+    );
     const password = dto.password ?? 'Teacher123!';
     const passwordHash =
       await this.bcryptUtilsService.generateHashPass(password);
@@ -124,6 +128,7 @@ export class TeachersService {
         },
         { user: { lastName: { contains: query.search, mode: 'insensitive' } } },
         { user: { phone: { contains: query.search, mode: 'insensitive' } } },
+        { user: { email: { contains: query.search, mode: 'insensitive' } } },
       ];
     }
 

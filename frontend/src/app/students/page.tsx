@@ -2,15 +2,7 @@
 /* eslint-disable react/no-unescaped-entities */
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  Filter,
-  LayoutGrid,
-  List,
-  Plus,
-  Trash2,
-  UserRoundPlus,
-  Users2,
-} from "lucide-react";
+import { LayoutGrid, List, Pencil, Plus, Trash2, UserRoundPlus, Users2 } from "lucide-react";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import {
@@ -27,58 +19,79 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ApiError } from "@/lib/api/client";
-import { groupsApi, parentsApi, studentsApi } from "@/lib/api/services";
+import { getActiveBranchId } from "@/lib/api/auth-storage";
+import { branchesApi, groupsApi, parentsApi, studentsApi } from "@/lib/api/services";
 import { Status, Student } from "@/lib/types";
 import { formatDate } from "@/lib/utils-helpers";
 
 const STATUS_OPTIONS: Status[] = ["ACTIVE", "INACTIVE", "ARCHIVED", "DELETED"];
+const MUTABLE_STATUS_OPTIONS: Status[] = ["ACTIVE", "INACTIVE", "ARCHIVED"];
 
 type Option = { id: string; name: string };
 
+type StudentDraft = {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+  studentNo: string;
+  avatarUrl: string;
+  branchId: string;
+  status: Status;
+  parentIds: string[];
+  groupIds: string[];
+};
+
+const EMPTY_STUDENT_DRAFT: StudentDraft = {
+  firstName: "",
+  lastName: "",
+  phone: "",
+  email: "",
+  studentNo: "",
+  avatarUrl: "",
+  branchId: "",
+  status: "ACTIVE",
+  parentIds: [],
+  groupIds: [],
+};
+
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
-  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("ACTIVE");
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [openCreateModal, setOpenCreateModal] = useState(false);
+  const [openEditModal, setOpenEditModal] = useState(false);
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [editingInitialStatus, setEditingInitialStatus] = useState<Status>("ACTIVE");
   const [parents, setParents] = useState<Option[]>([]);
   const [groups, setGroups] = useState<Option[]>([]);
-  const [draft, setDraft] = useState({
-    firstName: "",
-    lastName: "",
-    phone: "",
-    email: "",
-    studentNo: "",
-    avatarUrl: "",
-    parentIds: [] as string[],
-    groupIds: [] as string[],
-  });
+  const [branches, setBranches] = useState<Option[]>([]);
+  const [draft, setDraft] = useState<StudentDraft>(EMPTY_STUDENT_DRAFT);
+  const [editDraft, setEditDraft] = useState<StudentDraft>(EMPTY_STUDENT_DRAFT);
 
   const totalCount = useMemo(() => students.length, [students]);
 
   async function loadStudents() {
     try {
-      setLoading(true);
       const response = await studentsApi.list({
         page: 1,
-        limit: 50,
+        limit: 100,
         search: search || undefined,
         status: status === "ALL" ? undefined : status,
       });
       setStudents(response.data);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "O'quvchilar yuklanmadi");
-    } finally {
-      setLoading(false);
     }
   }
 
   async function loadOptions() {
     try {
-      const [parentsResponse, groupsResponse] = await Promise.all([
-        parentsApi.list({ page: 1, limit: 100, status: "ACTIVE" }),
-        groupsApi.list({ page: 1, limit: 100, status: "ACTIVE" }),
+      const [parentsResponse, groupsResponse, branchesResponse] = await Promise.all([
+        parentsApi.list({ page: 1, limit: 200, status: "ACTIVE" }),
+        groupsApi.list({ page: 1, limit: 200, status: "ACTIVE" }),
+        branchesApi.list({ page: 1, limit: 200, status: "ACTIVE" }),
       ]);
 
       const parentOptions = (parentsResponse.data as Array<Record<string, unknown>>).map((item) => {
@@ -88,18 +101,37 @@ export default function StudentsPage() {
         return { id: String(item.id), name: `${firstName} ${lastName}`.trim() || String(item.id) };
       });
       const groupOptions = groupsResponse.data.map((item) => ({ id: item.id, name: item.name }));
+      const branchOptions = (branchesResponse.data as Array<{ id: string; name: string }>).map((item) => ({
+        id: item.id,
+        name: item.name,
+      }));
+
+      const activeBranchId = getActiveBranchId();
+      const defaultBranchId =
+        (activeBranchId && branchOptions.some((item) => item.id === activeBranchId)
+          ? activeBranchId
+          : branchOptions[0]?.id) ?? "";
 
       setParents(parentOptions);
       setGroups(groupOptions);
+      setBranches(branchOptions);
+      setDraft((prev) => ({ ...prev, branchId: prev.branchId || defaultBranchId }));
+      setEditDraft((prev) => ({ ...prev, branchId: prev.branchId || defaultBranchId }));
     } catch {
       setParents([]);
       setGroups([]);
+      setBranches([]);
     }
   }
 
   useEffect(() => {
-    void loadStudents();
-  }, [status]); // Automatically refetch when status changes
+    const timer = setTimeout(() => {
+      void loadStudents();
+    }, 250);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, status]);
 
   useEffect(() => {
     void loadOptions();
@@ -111,6 +143,11 @@ export default function StudentsPage() {
       return;
     }
 
+    if (!draft.branchId) {
+      toast.error("Filialni tanlang");
+      return;
+    }
+
     try {
       await studentsApi.create({
         firstName: draft.firstName.trim(),
@@ -119,24 +156,83 @@ export default function StudentsPage() {
         email: draft.email.trim() || undefined,
         studentNo: draft.studentNo.trim() || undefined,
         avatarUrl: draft.avatarUrl.trim() || undefined,
+        branchId: draft.branchId,
         parentIds: draft.parentIds.length ? draft.parentIds : undefined,
         groupIds: draft.groupIds.length ? draft.groupIds : undefined,
       });
       toast.success("Yangi o'quvchi qo'shildi");
       setOpenCreateModal(false);
       setDraft({
-        firstName: "",
-        lastName: "",
-        phone: "",
-        email: "",
-        studentNo: "",
-        avatarUrl: "",
-        parentIds: [],
-        groupIds: [],
+        ...EMPTY_STUDENT_DRAFT,
+        branchId: getActiveBranchId() ?? branches[0]?.id ?? "",
       });
       await loadStudents();
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Yaratishda xatolik");
+    }
+  }
+
+  async function openEditStudent(id: string) {
+    try {
+      const response = await studentsApi.getById(id);
+      const user = (response.user ?? {}) as Record<string, unknown>;
+
+      const statusValue = (String(response.status ?? "ACTIVE") as Status) ?? "ACTIVE";
+
+      setEditingStudentId(id);
+      setEditingInitialStatus(statusValue);
+      setEditDraft({
+        firstName: String(user.firstName ?? ""),
+        lastName: String(user.lastName ?? ""),
+        phone: String(user.phone ?? ""),
+        email: String(user.email ?? ""),
+        studentNo: String(response.studentNo ?? ""),
+        avatarUrl: String(user.avatarUrl ?? ""),
+        branchId: String(response.branchId ?? getActiveBranchId() ?? branches[0]?.id ?? ""),
+        status: statusValue,
+        parentIds: [],
+        groupIds: [],
+      });
+      setOpenEditModal(true);
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "O'quvchi ma'lumotini olishda xatolik");
+    }
+  }
+
+  async function updateStudent() {
+    if (!editingStudentId) return;
+
+    if (!editDraft.firstName.trim() || !editDraft.lastName.trim()) {
+      toast.error("Ism va familiya majburiy");
+      return;
+    }
+
+    if (!editDraft.branchId) {
+      toast.error("Filialni tanlang");
+      return;
+    }
+
+    try {
+      await studentsApi.update(editingStudentId, {
+        firstName: editDraft.firstName.trim(),
+        lastName: editDraft.lastName.trim(),
+        phone: editDraft.phone.trim() || undefined,
+        email: editDraft.email.trim() || undefined,
+        studentNo: editDraft.studentNo.trim() || undefined,
+        avatarUrl: editDraft.avatarUrl.trim() || undefined,
+        branchId: editDraft.branchId,
+      });
+
+      if (editDraft.status !== editingInitialStatus) {
+        await studentsApi.changeStatus(editingStudentId, editDraft.status);
+      }
+
+      toast.success("O'quvchi yangilandi");
+      setOpenEditModal(false);
+      setEditingStudentId(null);
+      await loadStudents();
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Yangilashda xatolik");
     }
   }
 
@@ -150,8 +246,16 @@ export default function StudentsPage() {
     }
   }
 
-  function toggleListValue(key: "parentIds" | "groupIds", id: string) {
-    setDraft((prev) => ({
+  function toggleListValue(stateSetter: "draft" | "editDraft", key: "parentIds" | "groupIds", id: string) {
+    if (stateSetter === "draft") {
+      setDraft((prev) => ({
+        ...prev,
+        [key]: prev[key].includes(id) ? prev[key].filter((x) => x !== id) : [...prev[key], id],
+      }));
+      return;
+    }
+
+    setEditDraft((prev) => ({
       ...prev,
       [key]: prev[key].includes(id) ? prev[key].filter((x) => x !== id) : [...prev[key], id],
     }));
@@ -228,21 +332,31 @@ export default function StudentsPage() {
               </div>
               <div className="mt-3 flex items-center justify-between border-t border-[#edf1fb] pt-3">
                 <span className="text-xs text-[#8f99b7]">{formatDate(student.createdAt)}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-[#c7475c] hover:bg-[#fff0f3]"
-                  onClick={() => softDeleteStudent(student.id)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-blue-700 hover:bg-[#eef2ff]"
+                    onClick={() => openEditStudent(student.id)}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-[#c7475c] hover:bg-[#fff0f3]"
+                    onClick={() => softDeleteStudent(student.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </article>
           ))}
         </section>
       ) : (
         <section className="panel-surface overflow-hidden">
-          <div className="grid grid-cols-[1.5fr_1fr_1fr_0.9fr_0.5fr] gap-3 border-b border-[#edf1fb] bg-[#f6f8fe] px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8f99b7]">
+          <div className="grid grid-cols-[1.5fr_1fr_1fr_0.9fr_0.7fr] gap-3 border-b border-[#edf1fb] bg-[#f6f8fe] px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8f99b7]">
             <span>O'quvchi</span>
             <span>Student No</span>
             <span>Aloqa</span>
@@ -253,7 +367,7 @@ export default function StudentsPage() {
             {students.map((student) => (
               <div
                 key={student.id}
-                className="grid grid-cols-[1.5fr_1fr_1fr_0.9fr_0.5fr] items-center gap-3 px-4 py-3 text-sm"
+                className="grid grid-cols-[1.5fr_1fr_1fr_0.9fr_0.7fr] items-center gap-3 px-4 py-3 text-sm"
               >
                 <div>
                   <p className="font-semibold text-[#2f3655]">{student.name}</p>
@@ -262,7 +376,15 @@ export default function StudentsPage() {
                 <span className="text-[#616b8e]">{student.studentNo ?? "-"}</span>
                 <span className="truncate text-[#616b8e]">{student.phone ?? student.email ?? "-"}</span>
                 <Badge variant={student.isActive ? "secondary" : "outline"}>{student.status}</Badge>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-blue-700 hover:bg-[#eef2ff]"
+                    onClick={() => openEditStudent(student.id)}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -331,6 +453,23 @@ export default function StudentsPage() {
                   placeholder="ST-1021"
                 />
               </Field>
+              <Field label="Filial *">
+                <Select
+                  value={draft.branchId}
+                  onValueChange={(value) => setDraft((prev) => ({ ...prev, branchId: value ?? "" }))}
+                >
+                  <SelectTrigger className="soft-input h-11">
+                    <SelectValue placeholder="Filialni tanlang" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches.map((branch) => (
+                      <SelectItem key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
             </div>
           </StepSection>
 
@@ -342,7 +481,7 @@ export default function StudentsPage() {
             <MultiSelectPanel
               options={parents}
               selected={draft.parentIds}
-              onToggle={(id) => toggleListValue("parentIds", id)}
+              onToggle={(id) => toggleListValue("draft", "parentIds", id)}
               emptyLabel="Aktiv ota-onalar topilmadi"
             />
           </StepSection>
@@ -365,7 +504,7 @@ export default function StudentsPage() {
             <MultiSelectPanel
               options={groups}
               selected={draft.groupIds}
-              onToggle={(id) => toggleListValue("groupIds", id)}
+              onToggle={(id) => toggleListValue("draft", "groupIds", id)}
               emptyLabel="Aktiv guruhlar topilmadi"
             />
           </StepSection>
@@ -375,13 +514,128 @@ export default function StudentsPage() {
           </GradientButton>
         </div>
       </ModalShell>
+
+      <ModalShell
+        open={openEditModal}
+        onClose={() => {
+          setOpenEditModal(false);
+          setEditingStudentId(null);
+        }}
+        title="O'quvchini yangilash"
+        subtitle="Profil ma'lumotlarini tahrirlash"
+      >
+        <div className="space-y-4">
+          <StepSection step={1} title="Asosiy ma'lumotlar" hint="O'quvchi profili va statusi">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Field label="Ism *">
+                <Input
+                  className="soft-input h-11"
+                  value={editDraft.firstName}
+                  onChange={(event) => setEditDraft((prev) => ({ ...prev, firstName: event.target.value }))}
+                  placeholder="Ism"
+                />
+              </Field>
+              <Field label="Familiya *">
+                <Input
+                  className="soft-input h-11"
+                  value={editDraft.lastName}
+                  onChange={(event) => setEditDraft((prev) => ({ ...prev, lastName: event.target.value }))}
+                  placeholder="Familiya"
+                />
+              </Field>
+              <Field label="Telefon">
+                <Input
+                  className="soft-input h-11"
+                  value={editDraft.phone}
+                  onChange={(event) => setEditDraft((prev) => ({ ...prev, phone: event.target.value }))}
+                  placeholder="+998 90 123 45 67"
+                />
+              </Field>
+              <Field label="Email">
+                <Input
+                  className="soft-input h-11"
+                  value={editDraft.email}
+                  onChange={(event) => setEditDraft((prev) => ({ ...prev, email: event.target.value }))}
+                  placeholder="student@academy.uz"
+                />
+              </Field>
+              <Field label="Student No">
+                <Input
+                  className="soft-input h-11"
+                  value={editDraft.studentNo}
+                  onChange={(event) => setEditDraft((prev) => ({ ...prev, studentNo: event.target.value }))}
+                  placeholder="ST-1021"
+                />
+              </Field>
+              <Field label="Filial *">
+                <Select
+                  value={editDraft.branchId}
+                  onValueChange={(value) => setEditDraft((prev) => ({ ...prev, branchId: value ?? "" }))}
+                >
+                  <SelectTrigger className="soft-input h-11">
+                    <SelectValue placeholder="Filialni tanlang" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches.map((branch) => (
+                      <SelectItem key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Status">
+                <Select
+                  value={editDraft.status}
+                  onValueChange={(value) =>
+                    setEditDraft((prev) => ({
+                      ...prev,
+                      status: (value ?? "ACTIVE") as Status,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="soft-input h-11">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MUTABLE_STATUS_OPTIONS.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+          </StepSection>
+
+          <StepSection step={2} title="Profil rasmi" hint="Ixtiyoriy">
+            <AvatarUploadField
+              value={editDraft.avatarUrl || undefined}
+              onChange={(url) =>
+                setEditDraft((prev) => ({
+                  ...prev,
+                  avatarUrl: url ?? "",
+                }))
+              }
+              title="Profil rasmini yangilash"
+              hint="Yangi rasm update payloadga qo'shiladi"
+            />
+          </StepSection>
+
+          <GradientButton className="h-12 w-full rounded-xl text-base" onClick={updateStudent}>
+            <Pencil className="mr-1 h-4 w-4" />
+            Yangilash
+          </GradientButton>
+        </div>
+      </ModalShell>
     </DashboardLayout>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
-    <label className="space-y-1">
+    <label className={className ? `space-y-1 ${className}` : "space-y-1"}>
       <span className="text-xs font-medium text-[#7c87a9]">{label}</span>
       {children}
     </label>

@@ -117,6 +117,26 @@
   - backend `npm run build` successful
   - frontend `npm run build` successful
   - frontend `npm run lint` -> error yo'q, warninglar bor
+- [x] User/Admin/Student/Parent CRUD oqimi kengaytirildi (2026-04-16):
+  - `/users`, `/admins`, `/students`, `/parents` sahifalariga update icon va update modal qo'shildi
+  - create formalariga branch tanlash qo'shildi (`branchId` xatolarini kamaytirish uchun)
+  - search/filter oqimi auto-refresh (debounce) bilan ishlaydigan qilindi
+  - backend query yaxshilandi:
+    - `GET /users` uchun `role` filter qo'shildi (`UserQueryDto`)
+    - students/parents search ichiga `email` maydoni qo'shildi
+  - verify:
+    - backend `npm run build` successful
+    - frontend `npm run build` successful
+- [x] Filter/search backend bilan real smoke-test (2026-04-16):
+  - branch tanlanib test yozuvlar yaratildi: `admin`, `teacher`, `mentor(teacher specialty)`, `parent`, `student`, `staff`
+  - endpoint filter natijalari:
+    - `GET /admins?search=...` -> `FILTER_ADMIN_COUNT=1`
+    - `GET /teachers?search=...` -> `FILTER_TEACHER_COUNT=1`
+    - `GET /parents?search=...` -> `FILTER_PARENT_COUNT=1`
+    - `GET /students?search=...` -> `FILTER_STUDENT_COUNT=1`
+    - `GET /users?role=STAFF&search=...` -> `FILTER_STAFF_COUNT=1`
+  - duplicate email xabari foydalanuvchiga tushunarli holatga keltirildi:
+    - `409 Conflict` + `Takror qiymat ... allaqachon mavjud`
 
 ## Hozir Bajarilayotgan Bosqich
 - [x] Qolgan route'lar uchun umumiy list sahifani (`ApiListPage`) yangi dizayn tizimiga o'tkazish.

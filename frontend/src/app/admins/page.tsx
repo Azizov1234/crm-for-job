@@ -2,7 +2,7 @@
 /* eslint-disable react/no-unescaped-entities */
 
 import { useEffect, useMemo, useState } from "react";
-import { Filter, LayoutGrid, List, Plus, ShieldCheck, Trash2, UserPlus2 } from "lucide-react";
+import { LayoutGrid, List, Pencil, Plus, ShieldCheck, Trash2, UserPlus2 } from "lucide-react";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import {
@@ -20,19 +20,28 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api/client";
-import { adminsApi, usersApi } from "@/lib/api/services";
+import { getActiveBranchId } from "@/lib/api/auth-storage";
+import { adminsApi, branchesApi, usersApi } from "@/lib/api/services";
 import { Status } from "@/lib/types";
 import { formatDate } from "@/lib/utils-helpers";
 
 const STATUS_OPTIONS: Status[] = ["ACTIVE", "INACTIVE", "ARCHIVED", "DELETED"];
+const MUTABLE_STATUS_OPTIONS: Status[] = ["ACTIVE", "INACTIVE", "ARCHIVED"];
+const ADMIN_ROLE_OPTIONS = ["ADMIN", "STAFF"] as const;
+
+type AdminRole = (typeof ADMIN_ROLE_OPTIONS)[number];
 
 type AdminRow = {
   id: string;
+  userId: string;
   fullName: string;
+  firstName: string;
+  lastName: string;
   phone: string | null;
   email: string | null;
   notes: string | null;
   role: string;
+  branchId: string | null;
   branchName: string | null;
   status: string;
   isActive: boolean;
@@ -41,7 +50,20 @@ type AdminRow = {
 
 type Option = { id: string; name: string };
 
-const EMPTY_ADMIN_DRAFT = {
+type AdminDraft = {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+  password: string;
+  notes: string;
+  avatarUrl: string;
+  branchId: string;
+  status: Status;
+  role: AdminRole;
+};
+
+const EMPTY_ADMIN_DRAFT: AdminDraft = {
   firstName: "",
   lastName: "",
   phone: "",
@@ -49,7 +71,9 @@ const EMPTY_ADMIN_DRAFT = {
   password: "",
   notes: "",
   avatarUrl: "",
-  branchId: "NONE",
+  branchId: "",
+  status: "ACTIVE",
+  role: "ADMIN",
 };
 
 function toRecord(value: unknown): Record<string, unknown> {
@@ -64,6 +88,10 @@ function asNullableString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function normalizeAdminRole(value: string): AdminRole {
+  return value === "STAFF" ? "STAFF" : "ADMIN";
+}
+
 function mapAdminRow(raw: unknown): AdminRow {
   const item = toRecord(raw);
   const user = toRecord(item.user);
@@ -75,11 +103,15 @@ function mapAdminRow(raw: unknown): AdminRow {
 
   return {
     id: asString(item.id),
+    userId: asString(item.userId),
     fullName: fullName || "Noma'lum",
+    firstName,
+    lastName,
     phone: asNullableString(user.phone),
     email: asNullableString(user.email),
     notes: asNullableString(item.notes),
     role: asString(user.role) || "ADMIN",
+    branchId: asNullableString(item.branchId),
     branchName: asNullableString(branch.name),
     status,
     isActive: status === "ACTIVE",
@@ -90,21 +122,25 @@ function mapAdminRow(raw: unknown): AdminRow {
 export default function AdminsPage() {
   const [admins, setAdmins] = useState<AdminRow[]>([]);
   const [users, setUsers] = useState<Option[]>([]);
-  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("ACTIVE");
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [openCreateModal, setOpenCreateModal] = useState(false);
-  const [draft, setDraft] = useState(EMPTY_ADMIN_DRAFT);
+  const [openEditModal, setOpenEditModal] = useState(false);
+  const [editingAdminId, setEditingAdminId] = useState<string | null>(null);
+  const [editingInitialStatus, setEditingInitialStatus] = useState<Status>("ACTIVE");
+  const [editingInitialRole, setEditingInitialRole] = useState<AdminRole>("ADMIN");
+  const [draft, setDraft] = useState<AdminDraft>(EMPTY_ADMIN_DRAFT);
+  const [editDraft, setEditDraft] = useState<AdminDraft>(EMPTY_ADMIN_DRAFT);
   const [branches, setBranches] = useState<Option[]>([]);
   const [attachUserId, setAttachUserId] = useState("NONE");
+  const [attachBranchId, setAttachBranchId] = useState("");
   const [attachNotes, setAttachNotes] = useState("");
 
   const totalCount = useMemo(() => admins.length, [admins]);
 
   async function loadAdmins() {
     try {
-      setLoading(true);
       const response = await adminsApi.list({
         page: 1,
         limit: 100,
@@ -114,8 +150,6 @@ export default function AdminsPage() {
       setAdmins((response.data as unknown[]).map(mapAdminRow));
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Adminlar yuklanmadi");
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -130,26 +164,59 @@ export default function AdminsPage() {
 
   async function loadBranches() {
     try {
-      const response = await (await import("@/lib/api/services")).branchesApi.list({ limit: 100 });
-      setBranches((response.data as any[]).map(b => ({ id: b.id, name: b.name })));
+      const response = await branchesApi.list({ page: 1, limit: 200, status: "ACTIVE" });
+      const options = (response.data as Array<{ id: string; name: string }>).map((branch) => ({
+        id: branch.id,
+        name: branch.name,
+      }));
+      setBranches(options);
+
+      const persistedBranchId = getActiveBranchId();
+      const defaultBranchId =
+        (persistedBranchId && options.some((item) => item.id === persistedBranchId)
+          ? persistedBranchId
+          : options[0]?.id) ?? "";
+
+      setDraft((prev) => ({
+        ...prev,
+        branchId: prev.branchId && options.some((item) => item.id === prev.branchId) ? prev.branchId : defaultBranchId,
+      }));
+      setAttachBranchId((prev) =>
+        prev && options.some((item) => item.id === prev) ? prev : defaultBranchId,
+      );
+      setEditDraft((prev) => ({
+        ...prev,
+        branchId: prev.branchId && options.some((item) => item.id === prev.branchId) ? prev.branchId : defaultBranchId,
+      }));
     } catch {
       setBranches([]);
+      setDraft((prev) => ({ ...prev, branchId: "" }));
+      setAttachBranchId("");
+      setEditDraft((prev) => ({ ...prev, branchId: "" }));
     }
   }
 
   useEffect(() => {
-    void loadAdmins();
-  }, [status]); // Automatically refetch when status changes
+    const timer = setTimeout(() => {
+      void loadAdmins();
+    }, 250);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, status]);
 
   useEffect(() => {
     void loadUsers();
     void loadBranches();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function createAdmin() {
     if (!draft.firstName.trim() || !draft.lastName.trim()) {
       toast.error("Ism va familiya majburiy");
+      return;
+    }
+    if (!draft.branchId) {
+      toast.error("Admin uchun filialni tanlang");
       return;
     }
 
@@ -162,12 +229,13 @@ export default function AdminsPage() {
         password: draft.password.trim() || undefined,
         notes: draft.notes.trim() || undefined,
         avatarUrl: draft.avatarUrl.trim() || undefined,
-        branchId: draft.branchId === "NONE" ? undefined : draft.branchId,
+        branchId: draft.branchId,
       });
       toast.success("Yangi admin yaratildi");
       setOpenCreateModal(false);
-      setDraft(EMPTY_ADMIN_DRAFT);
+      setDraft({ ...EMPTY_ADMIN_DRAFT, branchId: getActiveBranchId() ?? branches[0]?.id ?? "" });
       setAttachUserId("NONE");
+      setAttachBranchId(getActiveBranchId() ?? branches[0]?.id ?? "");
       setAttachNotes("");
       await loadAdmins();
     } catch (error) {
@@ -180,19 +248,97 @@ export default function AdminsPage() {
       toast.error("Biriktirish uchun userni tanlang");
       return;
     }
+    if (!attachBranchId) {
+      toast.error("Biriktirish uchun filialni tanlang");
+      return;
+    }
 
     try {
       await adminsApi.attachExistingUser({
         userId: attachUserId,
+        branchId: attachBranchId,
         notes: attachNotes.trim() || undefined,
       });
       toast.success("Mavjud user admin sifatida biriktirildi");
       setOpenCreateModal(false);
       setAttachUserId("NONE");
+      setAttachBranchId(getActiveBranchId() ?? branches[0]?.id ?? "");
       setAttachNotes("");
       await loadAdmins();
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Biriktirishda xatolik");
+    }
+  }
+
+  async function openEditAdmin(id: string) {
+    try {
+      const response = await adminsApi.getById(id);
+      const item = toRecord(response);
+      const user = toRecord(item.user);
+
+      const role = normalizeAdminRole(asString(user.role));
+      const nextStatus = (asString(item.status) || "ACTIVE") as Status;
+
+      setEditingAdminId(id);
+      setEditingInitialStatus(nextStatus);
+      setEditingInitialRole(role);
+      setEditDraft({
+        firstName: asString(user.firstName),
+        lastName: asString(user.lastName),
+        phone: asString(user.phone),
+        email: asString(user.email),
+        password: "",
+        notes: asString(item.notes),
+        avatarUrl: asString(user.avatarUrl),
+        branchId: asString(item.branchId) || getActiveBranchId() || branches[0]?.id || "",
+        status: nextStatus,
+        role,
+      });
+      setOpenEditModal(true);
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Admin ma'lumotini olishda xatolik");
+    }
+  }
+
+  async function updateAdmin() {
+    if (!editingAdminId) return;
+
+    if (!editDraft.firstName.trim() || !editDraft.lastName.trim()) {
+      toast.error("Ism va familiya majburiy");
+      return;
+    }
+
+    if (!editDraft.branchId) {
+      toast.error("Filial tanlash majburiy");
+      return;
+    }
+
+    try {
+      await adminsApi.update(editingAdminId, {
+        firstName: editDraft.firstName.trim(),
+        lastName: editDraft.lastName.trim(),
+        phone: editDraft.phone.trim() || undefined,
+        email: editDraft.email.trim() || undefined,
+        password: editDraft.password.trim() || undefined,
+        notes: editDraft.notes.trim() || undefined,
+        avatarUrl: editDraft.avatarUrl.trim() || undefined,
+        branchId: editDraft.branchId,
+      });
+
+      if (editDraft.role !== editingInitialRole) {
+        await adminsApi.updateRole(editingAdminId, editDraft.role);
+      }
+
+      if (editDraft.status !== editingInitialStatus) {
+        await adminsApi.changeStatus(editingAdminId, editDraft.status);
+      }
+
+      toast.success("Admin yangilandi");
+      setOpenEditModal(false);
+      setEditingAdminId(null);
+      await loadAdmins();
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Yangilashda xatolik");
     }
   }
 
@@ -204,6 +350,22 @@ export default function AdminsPage() {
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Delete amalga oshmadi");
     }
+  }
+
+  function openCreateAdminModal() {
+    const activeBranchId = getActiveBranchId();
+    const fallbackBranchId = branches[0]?.id ?? "";
+    const nextBranchId =
+      activeBranchId && branches.some((branch) => branch.id === activeBranchId)
+        ? activeBranchId
+        : fallbackBranchId;
+
+    setDraft((prev) => ({
+      ...prev,
+      branchId: prev.branchId || nextBranchId,
+    }));
+    setAttachBranchId((prev) => prev || nextBranchId);
+    setOpenCreateModal(true);
   }
 
   return (
@@ -222,7 +384,7 @@ export default function AdminsPage() {
           setSearch(val);
         }}
         onFilter={loadAdmins}
-        placeholder="Adminga oid ma'lumot (ism, email) qidiring, va 'Filterlash'ni bosing..."
+        placeholder="Adminga oid ma'lumot (ism, email) qidiring..."
         actions={
           <>
             <Select value={status} onValueChange={(value) => setStatus(value ?? "ACTIVE")}>
@@ -245,7 +407,7 @@ export default function AdminsPage() {
             >
               {viewMode === "grid" ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
             </Button>
-            <GradientButton className="h-11 rounded-xl px-4" onClick={() => setOpenCreateModal(true)}>
+            <GradientButton className="h-11 rounded-xl px-4" onClick={openCreateAdminModal}>
               <Plus className="mr-1 h-4 w-4" />
               Admin qo'shish
             </GradientButton>
@@ -258,7 +420,7 @@ export default function AdminsPage() {
           title="Adminlar topilmadi"
           subtitle="Filterlarni tekshiring yoki yangi admin qo'shing."
           action={
-            <GradientButton className="rounded-xl px-5" onClick={() => setOpenCreateModal(true)}>
+            <GradientButton className="rounded-xl px-5" onClick={openCreateAdminModal}>
               <UserPlus2 className="mr-1 h-4 w-4" />
               Admin qo'shish
             </GradientButton>
@@ -279,21 +441,31 @@ export default function AdminsPage() {
               </div>
               <div className="mt-3 flex items-center justify-between border-t border-[#edf1fb] pt-3">
                 <span className="text-xs text-[#8f99b7]">{formatDate(admin.createdAt)}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-[#c7475c] hover:bg-[#fff0f3]"
-                  onClick={() => softDeleteAdmin(admin.id)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-blue-700 hover:bg-[#eef2ff]"
+                    onClick={() => openEditAdmin(admin.id)}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-[#c7475c] hover:bg-[#fff0f3]"
+                    onClick={() => softDeleteAdmin(admin.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </article>
           ))}
         </section>
       ) : (
         <section className="panel-surface overflow-hidden">
-          <div className="grid grid-cols-[1.2fr_0.9fr_1fr_1fr_0.8fr_0.5fr] gap-3 border-b border-[#edf1fb] bg-[#f6f8fe] px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8f99b7]">
+          <div className="grid grid-cols-[1.2fr_0.9fr_1fr_1fr_0.8fr_0.7fr] gap-3 border-b border-[#edf1fb] bg-[#f6f8fe] px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8f99b7]">
             <span>Admin</span>
             <span>Rol</span>
             <span>Aloqa</span>
@@ -305,7 +477,7 @@ export default function AdminsPage() {
             {admins.map((admin) => (
               <div
                 key={admin.id}
-                className="grid grid-cols-[1.2fr_0.9fr_1fr_1fr_0.8fr_0.5fr] items-center gap-3 px-4 py-3 text-sm"
+                className="grid grid-cols-[1.2fr_0.9fr_1fr_1fr_0.8fr_0.7fr] items-center gap-3 px-4 py-3 text-sm"
               >
                 <div>
                   <p className="font-semibold text-[#2f3655]">{admin.fullName}</p>
@@ -315,7 +487,15 @@ export default function AdminsPage() {
                 <span className="truncate text-[#616b8e]">{admin.phone ?? admin.email ?? "-"}</span>
                 <span className="truncate text-[#616b8e]">{admin.branchName ?? "-"}</span>
                 <Badge variant={admin.isActive ? "secondary" : "outline"}>{admin.status}</Badge>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-blue-700 hover:bg-[#eef2ff]"
+                    onClick={() => openEditAdmin(admin.id)}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -376,15 +556,26 @@ export default function AdminsPage() {
                   placeholder="admin@academy.uz"
                 />
               </Field>
-              <Field label="Filial (ixtiyoriy)">
-                <Select value={draft.branchId} onValueChange={(value) => setDraft(p => ({ ...p, branchId: value || "NONE" }))}>
+              <Field label="Filial (majburiy)">
+                <Select
+                  value={draft.branchId}
+                  onValueChange={(value) =>
+                    setDraft((prev) => ({ ...prev, branchId: value ?? "" }))
+                  }
+                >
                   <SelectTrigger className="soft-input h-11">
-                    <SelectValue placeholder="Filialni tanlang" />
+                    <SelectValue placeholder="Filialni tanlang (majburiy)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="NONE">Filial tanlanmagan (Super Admin)</SelectItem>
-                    {branches.map(b => (
-                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    {!branches.length ? (
+                      <SelectItem value="NO_BRANCH_AVAILABLE" disabled>
+                        Filial topilmadi
+                      </SelectItem>
+                    ) : null}
+                    {branches.map((branch) => (
+                      <SelectItem key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -422,17 +613,7 @@ export default function AdminsPage() {
             />
           </StepSection>
 
-          <StepSection
-            step={3}
-            title="SMS orqali kirish ma'lumoti yuborish"
-            hint="Parol kiritilmasa backend default parol bilan yaratadi"
-          >
-            <div className="rounded-xl border border-[#e7ecf8] bg-[#fbfcff] px-3 py-2 text-sm text-[#69749a]">
-              Create bosilgandan keyin login ma'lumotlarini SMS moduli orqali yuborishingiz mumkin.
-            </div>
-          </StepSection>
-
-          <StepSection step={4} title="Mavjud userga bog'lash" hint="Yangi yaratmasdan mavjud userni admin qiling">
+          <StepSection step={3} title="Mavjud userga bog'lash" hint="Yangi yaratmasdan mavjud userni admin qiling">
             <div className="space-y-3">
               <Field label="Mavjud user">
                 <Select value={attachUserId} onValueChange={(value) => setAttachUserId(value ?? "NONE")}>
@@ -444,6 +625,25 @@ export default function AdminsPage() {
                     {users.map((user) => (
                       <SelectItem key={user.id} value={user.id}>
                         {user.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Filial (majburiy)">
+                <Select value={attachBranchId} onValueChange={(value) => setAttachBranchId(value ?? "") }>
+                  <SelectTrigger className="soft-input h-11">
+                    <SelectValue placeholder="Filialni tanlang" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {!branches.length ? (
+                      <SelectItem value="NO_BRANCH_AVAILABLE" disabled>
+                        Filial topilmadi
+                      </SelectItem>
+                    ) : null}
+                    {branches.map((branch) => (
+                      <SelectItem key={branch.id} value={branch.id}>
+                        {branch.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -473,13 +673,158 @@ export default function AdminsPage() {
           </GradientButton>
         </div>
       </ModalShell>
+
+      <ModalShell
+        open={openEditModal}
+        onClose={() => {
+          setOpenEditModal(false);
+          setEditingAdminId(null);
+        }}
+        title="Adminni yangilash"
+        subtitle="Admin ma'lumotlarini tahrirlash"
+      >
+        <div className="space-y-4">
+          <StepSection step={1} title="Asosiy ma'lumotlar" hint="Profil va account ma'lumotlarini tahrirlash">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Field label="Ism *">
+                <Input
+                  className="soft-input h-11"
+                  value={editDraft.firstName}
+                  onChange={(event) => setEditDraft((prev) => ({ ...prev, firstName: event.target.value }))}
+                  placeholder="Ism"
+                />
+              </Field>
+              <Field label="Familiya *">
+                <Input
+                  className="soft-input h-11"
+                  value={editDraft.lastName}
+                  onChange={(event) => setEditDraft((prev) => ({ ...prev, lastName: event.target.value }))}
+                  placeholder="Familiya"
+                />
+              </Field>
+              <Field label="Telefon">
+                <Input
+                  className="soft-input h-11"
+                  value={editDraft.phone}
+                  onChange={(event) => setEditDraft((prev) => ({ ...prev, phone: event.target.value }))}
+                  placeholder="+998 90 123 45 67"
+                />
+              </Field>
+              <Field label="Email">
+                <Input
+                  className="soft-input h-11"
+                  value={editDraft.email}
+                  onChange={(event) => setEditDraft((prev) => ({ ...prev, email: event.target.value }))}
+                  placeholder="admin@academy.uz"
+                />
+              </Field>
+              <Field label="Yangi parol (ixtiyoriy)">
+                <Input
+                  className="soft-input h-11"
+                  value={editDraft.password}
+                  onChange={(event) => setEditDraft((prev) => ({ ...prev, password: event.target.value }))}
+                  placeholder="Parolni o'zgartirish uchun kiriting"
+                />
+              </Field>
+              <Field label="Filial *">
+                <Select
+                  value={editDraft.branchId}
+                  onValueChange={(value) => setEditDraft((prev) => ({ ...prev, branchId: value ?? "" }))}
+                >
+                  <SelectTrigger className="soft-input h-11">
+                    <SelectValue placeholder="Filialni tanlang" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches.map((branch) => (
+                      <SelectItem key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Role">
+                <Select
+                  value={editDraft.role}
+                  onValueChange={(value) =>
+                    setEditDraft((prev) => ({
+                      ...prev,
+                      role: normalizeAdminRole(value ?? "ADMIN"),
+                    }))
+                  }
+                >
+                  <SelectTrigger className="soft-input h-11">
+                    <SelectValue placeholder="Role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ADMIN_ROLE_OPTIONS.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Status">
+                <Select
+                  value={editDraft.status}
+                  onValueChange={(value) =>
+                    setEditDraft((prev) => ({
+                      ...prev,
+                      status: (value ?? "ACTIVE") as Status,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="soft-input h-11">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MUTABLE_STATUS_OPTIONS.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Izoh" className="md:col-span-2">
+                <Textarea
+                  className="soft-input min-h-20"
+                  value={editDraft.notes}
+                  onChange={(event) => setEditDraft((prev) => ({ ...prev, notes: event.target.value }))}
+                  placeholder="Ixtiyoriy izoh"
+                />
+              </Field>
+            </div>
+          </StepSection>
+
+          <StepSection step={2} title="Profil rasmi" hint="Ixtiyoriy">
+            <AvatarUploadField
+              value={editDraft.avatarUrl || undefined}
+              onChange={(url) =>
+                setEditDraft((prev) => ({
+                  ...prev,
+                  avatarUrl: url ?? "",
+                }))
+              }
+              title="Avatar"
+              hint="Yangi rasm yuklasangiz update payloadga qo'shiladi"
+            />
+          </StepSection>
+
+          <GradientButton className="h-12 w-full rounded-xl text-base" onClick={updateAdmin}>
+            <Pencil className="mr-1 h-4 w-4" />
+            Yangilash
+          </GradientButton>
+        </div>
+      </ModalShell>
     </DashboardLayout>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
-    <label className="space-y-1">
+    <label className={className ? `space-y-1 ${className}` : "space-y-1"}>
       <span className="text-xs font-medium text-[#7c87a9]">{label}</span>
       {children}
     </label>

@@ -1,7 +1,6 @@
 ﻿import { BadRequestException, Injectable } from '@nestjs/common';
 import { Status, UserRole } from '@prisma/client';
 import type { Request } from 'express';
-import { BaseQueryDto } from '../../common/dto/base-query.dto';
 import type { RequestUser } from '../../common/interfaces/request-user.interface';
 import { BaseCrudService } from '../../common/services/base-crud.service';
 import { BranchScopeService } from '../../common/services/branch-scope.service';
@@ -11,6 +10,7 @@ import { AuditLogService } from '../../common/services/audit-log.service';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UserQueryDto } from './dto/user-query.dto';
 
 @Injectable()
 export class UsersService extends BaseCrudService {
@@ -27,7 +27,11 @@ export class UsersService extends BaseCrudService {
     super(prisma, auditLogService);
   }
 
-  async createUser(dto: CreateUserDto, actor: RequestUser, request?: Request) {
+  async createUser(
+    dto: CreateUserDto,
+    actor: RequestUser,
+    request?: Request,
+  ): Promise<unknown> {
     if (
       actor.role !== UserRole.SUPER_ADMIN &&
       dto.role === UserRole.SUPER_ADMIN
@@ -51,7 +55,7 @@ export class UsersService extends BaseCrudService {
       dto.password,
     );
 
-    return this.create(
+    const createdUser: unknown = await this.create(
       {
         organizationId: actor.organizationId,
         branchId: branchId ?? null,
@@ -67,11 +71,17 @@ export class UsersService extends BaseCrudService {
       actor,
       request,
     );
+
+    return createdUser;
   }
 
-  async findUsers(query: BaseQueryDto, actor: RequestUser) {
+  async findUsers(query: UserQueryDto, actor: RequestUser) {
+    const normalizedRole =
+      query.role === 'MENTOR' ? UserRole.TEACHER : query.role;
+
     return this.findAll(query, actor, {
       searchFields: ['firstName', 'lastName', 'email', 'phone'],
+      defaultWhere: normalizedRole ? { role: normalizedRole } : undefined,
       include: {
         branch: {
           select: {

@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react/no-unescaped-entities */
 
 import { useEffect, useMemo, useState } from "react";
 import { Filter, Plus, Search, Trash2, Wallet, User as UserIcon, Users as UsersIcon, Check, Clock, AlertCircle, XCircle } from "lucide-react";

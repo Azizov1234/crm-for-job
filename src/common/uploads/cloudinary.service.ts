@@ -1,6 +1,11 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
-import { UploadApiOptions, v2 as cloudinary } from 'cloudinary';
-const streamifier = require('streamifier');
+import {
+  UploadApiErrorResponse,
+  UploadApiOptions,
+  UploadApiResponse,
+  v2 as cloudinary,
+} from 'cloudinary';
+import streamifier from 'streamifier';
 
 @Injectable()
 export class CloudinaryService {
@@ -22,7 +27,7 @@ export class CloudinaryService {
   uploadFile(
     file: Express.Multer.File,
     options: UploadApiOptions = {},
-  ): Promise<any> {
+  ): Promise<UploadApiResponse> {
     this.ensureCloudinaryConfig();
 
     return new Promise((resolve, reject) => {
@@ -31,9 +36,24 @@ export class CloudinaryService {
           timeout: 30_000,
           ...options,
         },
-        (error, result) => {
+        (
+          error: UploadApiErrorResponse | undefined,
+          result?: UploadApiResponse,
+        ) => {
           if (error) {
-            return reject(error);
+            return reject(
+              new Error(
+                error.message || 'Cloudinaryga yuklash vaqtida xatolik.',
+              ),
+            );
+          }
+
+          if (!result) {
+            return reject(
+              new ServiceUnavailableException(
+                'Cloudinary javobi olinmadi. Qayta urinib koring.',
+              ),
+            );
           }
 
           resolve(result);

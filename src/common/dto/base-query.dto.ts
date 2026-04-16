@@ -11,24 +11,61 @@ import {
   Min,
 } from 'class-validator';
 
-export class BaseQueryDto {
-  @ApiPropertyOptional({ default: 1 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page = 1;
+function normalizeSearch(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
 
-  @ApiPropertyOptional({ default: 10 })
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    return value.toLowerCase() === 'true';
+  }
+
+  if (typeof value === 'number') {
+    return value === 1;
+  }
+
+  return false;
+}
+
+export class BaseQueryDto {
+  @ApiPropertyOptional({
+    description: 'Sahifa raqami',
+    type: Number,
+    default: 1,
+    minimum: 1,
+    example: 1,
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  limit = 10;
+  page: number = 1;
+
+  @ApiPropertyOptional({
+    description: 'Sahifadagi yozuvlar soni',
+    type: Number,
+    default: 10,
+    minimum: 1,
+    example: 10,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit: number = 10;
 
   @ApiPropertyOptional({ description: 'Qidiruv sozi' })
   @IsOptional()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ value }: { value: unknown }) => normalizeSearch(value))
   @IsString()
   search?: string;
 
@@ -55,13 +92,9 @@ export class BaseQueryDto {
   @IsDateString()
   to?: string;
 
-  @ApiPropertyOptional({ default: false })
+  @ApiPropertyOptional({ type: Boolean, default: false, example: false })
   @IsOptional()
-  @Transform(({ value }) => {
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'string') return value === 'true';
-    return false;
-  })
+  @Transform(({ value }: { value: unknown }) => normalizeBoolean(value))
   @IsBoolean()
-  includeDeleted = false;
+  includeDeleted: boolean = false;
 }

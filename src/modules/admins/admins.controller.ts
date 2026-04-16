@@ -1,4 +1,4 @@
-﻿import {
+import {
   Body,
   Controller,
   Get,
@@ -7,15 +7,30 @@
   Post,
   Query,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { Status } from '@prisma/client';
 import type { Request } from 'express';
 import { BaseQueryDto } from '../../common/dto/base-query.dto';
 import { ChangeStatusDto } from '../../common/dto/change-status.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  MAX_IMAGE_SIZE,
+  validateImage,
+} from '../../common/functions/check.file';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import type { RequestUser } from '../../common/interfaces/request-user.interface';
+import { CloudinaryService } from '../../common/uploads/cloudinary.service';
 import {
   paginatedResponse,
   successResponse,
@@ -26,20 +41,56 @@ import { CreateAdminDto } from './dto/create-admin.dto';
 import { UpdateAdminRoleDto } from './dto/update-admin-role.dto';
 import { UpdateAdminDto } from './dto/update-admin.dto';
 
+const adminMultipartProperties = {
+  firstName: { type: 'string', example: 'Ali' },
+  lastName: { type: 'string', example: 'Valiyev' },
+  phone: { type: 'string', example: '+998901234567' },
+  email: { type: 'string', example: 'admin@academy.uz' },
+  password: { type: 'string', example: 'Admin123!' },
+  notes: { type: 'string', example: 'Main branch admin' },
+  branchId: { type: 'string' },
+  status: { type: 'string', enum: Object.values(Status) },
+  avatarUrl: { type: 'string', format: 'binary' },
+};
+
 @ApiTags('Admins')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('admins')
 export class AdminsController {
-  constructor(private readonly adminsService: AdminsService) {}
+  constructor(
+    private readonly adminsService: AdminsService,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
 
   @Post()
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: adminMultipartProperties,
+      required: ['firstName', 'lastName', 'branchId'],
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('avatarUrl', { limits: { fileSize: MAX_IMAGE_SIZE } }),
+  )
   @ApiOperation({ summary: 'Admin yaratish' })
   async create(
     @Body() dto: CreateAdminDto,
+    @UploadedFile() avatarFile: Express.Multer.File,
     @CurrentUser() user: RequestUser,
     @Req() request: Request,
   ) {
+    if (avatarFile) {
+      validateImage(avatarFile);
+      const uploaded = await this.cloudinaryService.uploadFile(avatarFile, {
+        resource_type: 'image',
+        folder: 'academy/admins',
+      });
+      dto.avatarUrl = uploaded.secure_url;
+    }
+
     const data = await this.adminsService.createAdmin(dto, user, request);
     return successResponse('Admin yaratildi', data);
   }
@@ -62,13 +113,33 @@ export class AdminsController {
   }
 
   @Patch(':id')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: adminMultipartProperties,
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('avatarUrl', { limits: { fileSize: MAX_IMAGE_SIZE } }),
+  )
   @ApiOperation({ summary: 'Adminni yangilash' })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateAdminDto,
+    @UploadedFile() avatarFile: Express.Multer.File,
     @CurrentUser() user: RequestUser,
     @Req() request: Request,
   ) {
+    if (avatarFile) {
+      validateImage(avatarFile);
+      const uploaded = await this.cloudinaryService.uploadFile(avatarFile, {
+        resource_type: 'image',
+        folder: 'academy/admins',
+      });
+      dto.avatarUrl = uploaded.secure_url;
+    }
+
     const data = await this.adminsService.updateAdmin(id, dto, user, request);
     return successResponse('Admin yangilandi', data);
   }

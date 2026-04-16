@@ -5,7 +5,7 @@
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Status } from '@prisma/client';
+import { Status, UserRole } from '@prisma/client';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { JwtUtilsService } from '../utils/jwt.service';
@@ -69,7 +69,21 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Foydalanuvchi faol emas');
     }
 
-    request.user = user;
+    const branchHeader = request.headers['x-branch-id'];
+    const requestedBranchId =
+      typeof branchHeader === 'string'
+        ? branchHeader.trim()
+        : Array.isArray(branchHeader)
+          ? branchHeader[0]?.trim()
+          : '';
+
+    request.user = {
+      ...user,
+      branchId:
+        user.role === UserRole.SUPER_ADMIN && requestedBranchId
+          ? requestedBranchId
+          : user.branchId,
+    };
     return true;
   }
 }

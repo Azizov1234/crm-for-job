@@ -1,4 +1,5 @@
-﻿import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Gender } from '@prisma/client';
 import {
   IsArray,
@@ -9,6 +10,39 @@ import {
   IsString,
   MinLength,
 } from 'class-validator';
+
+function toStringArray(value: unknown): string[] | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item.trim() : String(item)))
+      .filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) =>
+            typeof item === 'string' ? item.trim() : String(item),
+          )
+          .filter(Boolean);
+      }
+    } catch {
+      return trimmed
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+  }
+
+  return undefined;
+}
 
 export class CreateStudentDto {
   @ApiProperty()
@@ -72,11 +106,13 @@ export class CreateStudentDto {
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
+  @Transform(({ value }) => toStringArray(value))
   @IsArray()
   parentIds?: string[];
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
+  @Transform(({ value }) => toStringArray(value))
   @IsArray()
   groupIds?: string[];
 }

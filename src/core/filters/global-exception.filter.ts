@@ -7,7 +7,10 @@
   Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import type { RequestUser } from '../../common/interfaces/request-user.interface';
 import { AuditLogService } from '../../common/services/audit-log.service';
+
+type RequestWithOptionalUser = Request & { user?: Partial<RequestUser> };
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -17,10 +20,18 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
   async catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
-    const request = ctx.getRequest<Request & { user?: any }>();
+    const request = ctx.getRequest<RequestWithOptionalUser>();
     const response = ctx.getResponse<Response>();
 
-    const status =
+    const prismaError =
+      exception && typeof exception === 'object' && 'code' in exception
+        ? (exception as {
+            code?: string;
+            meta?: { target?: string[] | string };
+          })
+        : null;
+    const isPrismaKnownError = Boolean(prismaError?.code);
+    let status =
       exception instanceof HttpException
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
@@ -28,7 +39,23 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let message = 'Serverda xatolik yuz berdi';
     let details: string[] | undefined;
 
-    if (exception instanceof HttpException) {
+    if (isPrismaKnownError) {
+      if (prismaError?.code === 'P2002') {
+        status = HttpStatus.CONFLICT;
+        const target = Array.isArray(prismaError.meta?.target)
+          ? prismaError.meta.target.join(', ')
+          : typeof prismaError.meta?.target === 'string'
+            ? prismaError.meta.target
+            : 'field';
+        message = `Takror qiymat: ${target} allaqachon mavjud`;
+        details = [`${target} unique bo'lishi kerak`];
+      } else if (prismaError?.code === 'P2025') {
+        status = HttpStatus.NOT_FOUND;
+        message = "Yozuv topilmadi yoki allaqachon o'chirilgan";
+      } else {
+        message = 'Database xatoligi yuz berdi';
+      }
+    } else if (exception instanceof HttpException) {
       const exceptionResponse = exception.getResponse();
 
       if (typeof exceptionResponse === 'string') {
@@ -59,11 +86,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       );
     }
 
-    if (request.user?.organizationId) {
+    const actor = request.user;
+    if (actor?.organizationId) {
       await this.auditLogService.logError({
-        organizationId: request.user.organizationId,
-        userId: request.user.id,
-        branchId: request.user.branchId,
+        organizationId: actor.organizationId,
+        userId: actor.id ?? null,
+        branchId: actor.branchId ?? null,
         message,
         stack: exception instanceof Error ? exception.stack : null,
         path: request.url,

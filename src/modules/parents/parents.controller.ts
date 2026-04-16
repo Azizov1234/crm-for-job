@@ -1,4 +1,4 @@
-﻿import {
+import {
   Body,
   Controller,
   Get,
@@ -7,15 +7,30 @@
   Post,
   Query,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { Status } from '@prisma/client';
 import type { Request } from 'express';
 import { BaseQueryDto } from '../../common/dto/base-query.dto';
 import { ChangeStatusDto } from '../../common/dto/change-status.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  MAX_IMAGE_SIZE,
+  validateImage,
+} from '../../common/functions/check.file';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import type { RequestUser } from '../../common/interfaces/request-user.interface';
+import { CloudinaryService } from '../../common/uploads/cloudinary.service';
 import {
   paginatedResponse,
   successResponse,
@@ -25,20 +40,58 @@ import { CreateParentDto } from './dto/create-parent.dto';
 import { UpdateParentDto } from './dto/update-parent.dto';
 import { ParentsService } from './parents.service';
 
+const parentMultipartProperties = {
+  firstName: { type: 'string', example: 'Otabek' },
+  lastName: { type: 'string', example: 'Karimov' },
+  phone: { type: 'string', example: '+998901234567' },
+  email: { type: 'string', example: 'parent@academy.uz' },
+  password: { type: 'string', example: 'Parent123!' },
+  occupation: { type: 'string', example: 'Engineer' },
+  address: { type: 'string', example: 'Toshkent shahri' },
+  branchId: { type: 'string' },
+  status: { type: 'string', enum: Object.values(Status) },
+  studentIds: { type: 'array', items: { type: 'string' } },
+  avatarUrl: { type: 'string', format: 'binary' },
+};
+
 @ApiTags('Parents')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('parents')
 export class ParentsController {
-  constructor(private readonly parentsService: ParentsService) {}
+  constructor(
+    private readonly parentsService: ParentsService,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
 
   @Post()
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: parentMultipartProperties,
+      required: ['firstName', 'lastName', 'branchId'],
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('avatarUrl', { limits: { fileSize: MAX_IMAGE_SIZE } }),
+  )
   @ApiOperation({ summary: 'Ota-ona yaratish' })
   async create(
     @Body() dto: CreateParentDto,
+    @UploadedFile() avatarFile: Express.Multer.File,
     @CurrentUser() user: RequestUser,
     @Req() request: Request,
   ) {
+    if (avatarFile) {
+      validateImage(avatarFile);
+      const uploaded = await this.cloudinaryService.uploadFile(avatarFile, {
+        resource_type: 'image',
+        folder: 'academy/parents',
+      });
+      dto.avatarUrl = uploaded.secure_url;
+    }
+
     const data = await this.parentsService.createParent(dto, user, request);
     return successResponse('Ota-ona yaratildi', data);
   }
@@ -61,13 +114,33 @@ export class ParentsController {
   }
 
   @Patch(':id')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: parentMultipartProperties,
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('avatarUrl', { limits: { fileSize: MAX_IMAGE_SIZE } }),
+  )
   @ApiOperation({ summary: 'Ota-onani yangilash' })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateParentDto,
+    @UploadedFile() avatarFile: Express.Multer.File,
     @CurrentUser() user: RequestUser,
     @Req() request: Request,
   ) {
+    if (avatarFile) {
+      validateImage(avatarFile);
+      const uploaded = await this.cloudinaryService.uploadFile(avatarFile, {
+        resource_type: 'image',
+        folder: 'academy/parents',
+      });
+      dto.avatarUrl = uploaded.secure_url;
+    }
+
     const data = await this.parentsService.updateParent(id, dto, user, request);
     return successResponse('Ota-ona yangilandi', data);
   }

@@ -15,6 +15,7 @@ import {
   User,
 } from "../types";
 import { apiRequest } from "./client";
+import { getActiveBranchId } from "./auth-storage";
 
 export type QueryParams = Record<
   string,
@@ -22,6 +23,36 @@ export type QueryParams = Record<
 >;
 
 export type SelectOption = { id: string; name: string };
+
+const shouldSkipActiveBranchScope = (path: string) =>
+  path.startsWith("/branches");
+
+const withActiveBranchScope = (params: QueryParams | undefined, path: string): QueryParams | undefined => {
+  if (shouldSkipActiveBranchScope(path)) {
+    return params;
+  }
+
+  const hasExplicitBranchId =
+    params &&
+    Object.prototype.hasOwnProperty.call(params, "branchId") &&
+    params.branchId !== undefined &&
+    params.branchId !== null &&
+    params.branchId !== "";
+
+  if (hasExplicitBranchId) {
+    return params;
+  }
+
+  const activeBranchId = getActiveBranchId();
+  if (!activeBranchId) {
+    return params;
+  }
+
+  return {
+    ...(params ?? {}),
+    branchId: activeBranchId,
+  };
+};
 
 const qs = (params: QueryParams = {}) => {
   const p = new URLSearchParams();
@@ -39,6 +70,34 @@ const unwrapList = <T>(r: ApiPaginatedResponse<T>): PaginatedResponse<T> => ({
   meta: r.meta,
 });
 
+const toFormData = (payload: Record<string, unknown> = {}) => {
+  const formData = new FormData();
+
+  for (const [key, value] of Object.entries(payload)) {
+    if (value === undefined || value === null || value === "") continue;
+
+    if (Array.isArray(value)) {
+      if (value.length === 0) continue;
+      formData.append(key, JSON.stringify(value));
+      continue;
+    }
+
+    if (value instanceof Blob) {
+      formData.append(key, value);
+      continue;
+    }
+
+    if (value instanceof Date) {
+      formData.append(key, value.toISOString());
+      continue;
+    }
+
+    formData.append(key, String(value));
+  }
+
+  return formData;
+};
+
 const get = async <T = any>(path: string) =>
   unwrapData(await apiRequest<ApiResponse<T>>(path));
 const post = async <T = any>(path: string, body?: unknown) =>
@@ -55,8 +114,20 @@ const patch = async <T = any>(path: string, body?: unknown) =>
       body: body instanceof FormData ? body : JSON.stringify(body ?? {}),
     }),
   );
+const postMultipart = async <T = any>(
+  path: string,
+  payload?: Record<string, unknown>,
+) => post<T>(path, toFormData(payload));
+const patchMultipart = async <T = any>(
+  path: string,
+  payload?: Record<string, unknown>,
+) => patch<T>(path, toFormData(payload));
 const list = async <T = any>(path: string, params?: QueryParams) =>
-  unwrapList(await apiRequest<ApiPaginatedResponse<T>>(`${path}${qs(params)}`));
+  unwrapList(
+    await apiRequest<ApiPaginatedResponse<T>>(
+      `${path}${qs(withActiveBranchScope(params, path) ?? {})}`,
+    ),
+  );
 
 const mapUser = (raw: any): User => {
   const firstName = raw.firstName ?? "";
@@ -197,22 +268,24 @@ export const authApi = {
 
 export const dashboardApi = {
   overview: async (params?: QueryParams) =>
-    get<DashboardOverview>(`/dashboard/overview${qs(params)}`),
+    get<DashboardOverview>(
+      `/dashboard/overview${qs(withActiveBranchScope(params, "/dashboard/overview") ?? {})}`,
+    ),
   genderStats: async (params?: QueryParams) =>
     get<Array<{ gender: string | null; count: number }>>(
-      `/dashboard/gender-stats${qs(params)}`,
+      `/dashboard/gender-stats${qs(withActiveBranchScope(params, "/dashboard/gender-stats") ?? {})}`,
     ),
   monthlyIncome: async (params?: QueryParams) =>
     get<Array<{ month: string; amount: number }>>(
-      `/dashboard/monthly-income${qs(params)}`,
+      `/dashboard/monthly-income${qs(withActiveBranchScope(params, "/dashboard/monthly-income") ?? {})}`,
     ),
   attendanceStats: async (params?: QueryParams) =>
     get<Array<{ status: string; count: number }>>(
-      `/dashboard/attendance-stats${qs(params)}`,
+      `/dashboard/attendance-stats${qs(withActiveBranchScope(params, "/dashboard/attendance-stats") ?? {})}`,
     ),
   topStudents: async (params?: QueryParams) =>
     get<Array<{ fullName: string; avgScore: number; ratingCount: number }>>(
-      `/dashboard/top-students${qs(params)}`,
+      `/dashboard/top-students${qs(withActiveBranchScope(params, "/dashboard/top-students") ?? {})}`,
     ),
 };
 
@@ -221,13 +294,16 @@ export const usersApi = {
     const r = await list("/users", params);
     return { data: r.data.map(mapUser), meta: r.meta } satisfies PaginatedResponse<User>;
   },
-  create: (payload: Record<string, unknown>) => post("/users", payload),
+  create: (payload: Record<string, unknown>) => postMultipart("/users", payload),
   getById: (id: string) => get(`/users/${id}`),
-  update: (id: string, payload: Record<string, unknown>) => patch(`/users/${id}`, payload),
+  update: (id: string, payload: Record<string, unknown>) =>
+    patchMultipart(`/users/${id}`, payload),
   remove: (id: string) => patch(`/users/${id}/delete`),
   changeStatus: (id: string, status: string) => patch(`/users/${id}/status`, { status }),
   selectOptions: async (branchId?: string) =>
-    (await get<any[]>(`/users/select-options${qs({ branchId })}`)).map(mapOption),
+    (await get<any[]>(
+      `/users/select-options${qs(withActiveBranchScope({ branchId }, "/users/select-options") ?? {})}`,
+    )).map(mapOption),
 };
 
 export const studentsApi = {
@@ -235,9 +311,11 @@ export const studentsApi = {
     const r = await list("/students", params);
     return { data: r.data.map(mapStudent), meta: r.meta } satisfies PaginatedResponse<Student>;
   },
-  create: (payload: Record<string, unknown>) => post("/students", payload),
+  create: (payload: Record<string, unknown>) =>
+    postMultipart("/students", payload),
   getById: (id: string) => get(`/students/${id}`),
-  update: (id: string, payload: Record<string, unknown>) => patch(`/students/${id}`, payload),
+  update: (id: string, payload: Record<string, unknown>) =>
+    patchMultipart(`/students/${id}`, payload),
   remove: (id: string) => patch(`/students/${id}/delete`),
   changeStatus: (id: string, status: string) => patch(`/students/${id}/status`, { status }),
   assignParents: (id: string, parentIds: string[]) =>
@@ -248,7 +326,9 @@ export const studentsApi = {
   attendance: (id: string) => get(`/students/${id}/attendance`),
   ratings: (id: string) => get(`/students/${id}/ratings`),
   selectOptions: async (branchId?: string) =>
-    (await get<any[]>(`/students/select-options${qs({ branchId })}`)).map(mapOption),
+    (await get<any[]>(
+      `/students/select-options${qs(withActiveBranchScope({ branchId }, "/students/select-options") ?? {})}`,
+    )).map(mapOption),
 };
 
 export const teachersApi = {
@@ -256,13 +336,17 @@ export const teachersApi = {
     const r = await list("/teachers", params);
     return { data: r.data.map(mapTeacher), meta: r.meta } satisfies PaginatedResponse<Teacher>;
   },
-  create: (payload: Record<string, unknown>) => post("/teachers", payload),
+  create: (payload: Record<string, unknown>) =>
+    postMultipart("/teachers", payload),
   getById: (id: string) => get(`/teachers/${id}`),
-  update: (id: string, payload: Record<string, unknown>) => patch(`/teachers/${id}`, payload),
+  update: (id: string, payload: Record<string, unknown>) =>
+    patchMultipart(`/teachers/${id}`, payload),
   remove: (id: string) => patch(`/teachers/${id}/delete`),
   changeStatus: (id: string, status: string) => patch(`/teachers/${id}/status`, { status }),
   selectOptions: async (branchId?: string) =>
-    (await get<any[]>(`/teachers/select-options${qs({ branchId })}`)).map(mapOption),
+    (await get<any[]>(
+      `/teachers/select-options${qs(withActiveBranchScope({ branchId }, "/teachers/select-options") ?? {})}`,
+    )).map(mapOption),
 };
 
 export const coursesApi = {
@@ -315,7 +399,8 @@ export const attendanceApi = {
   },
   create: (payload: Record<string, unknown>) => post("/attendance", payload),
   bulkCreate: (payload: Record<string, unknown>) => post("/attendance/bulk", payload),
-  stats: (params?: QueryParams) => get(`/attendance/stats${qs(params)}`),
+  stats: (params?: QueryParams) =>
+    get(`/attendance/stats${qs(withActiveBranchScope(params, "/attendance/stats") ?? {})}`),
   byStudent: (studentId: string, params?: QueryParams) =>
     list(`/attendance/by-student/${studentId}`, params),
   byGroup: (groupId: string, params?: QueryParams) =>
@@ -334,7 +419,8 @@ export const paymentsApi = {
   update: (id: string, payload: Record<string, unknown>) => patch(`/payments/${id}`, payload),
   remove: (id: string) => patch(`/payments/${id}/delete`),
   pay: (id: string, payload: Record<string, unknown>) => post(`/payments/${id}/pay`, payload),
-  stats: (params?: QueryParams) => get(`/payments/stats/summary${qs(params)}`),
+  stats: (params?: QueryParams) =>
+    get(`/payments/stats/summary${qs(withActiveBranchScope(params, "/payments/stats/summary") ?? {})}`),
   byStudent: (studentId: string, params?: QueryParams) =>
     list(`/payments/student/${studentId}`, params),
   history: (paymentId: string) => get(`/payments/history/${paymentId}`),
@@ -374,10 +460,11 @@ export const uploadsApi = {
 
 export const adminsApi = {
   list: (params?: QueryParams) => list("/admins", params),
-  create: (payload: Record<string, unknown>) => post("/admins", payload),
+  create: (payload: Record<string, unknown>) =>
+    postMultipart("/admins", payload),
   getById: (id: string) => get(`/admins/${id}`),
   update: (id: string, payload: Record<string, unknown>) =>
-    patch(`/admins/${id}`, payload),
+    patchMultipart(`/admins/${id}`, payload),
   remove: (id: string) => patch(`/admins/${id}/delete`),
   updateRole: (id: string, role: string) => patch(`/admins/${id}/role`, { role }),
   attachExistingUser: (payload: Record<string, unknown>) =>
@@ -399,10 +486,11 @@ export const branchesApi = {
 
 export const parentsApi = {
   list: (params?: QueryParams) => list("/parents", params),
-  create: (payload: Record<string, unknown>) => post("/parents", payload),
+  create: (payload: Record<string, unknown>) =>
+    postMultipart("/parents", payload),
   getById: (id: string) => get(`/parents/${id}`),
   update: (id: string, payload: Record<string, unknown>) =>
-    patch(`/parents/${id}`, payload),
+    patchMultipart(`/parents/${id}`, payload),
   remove: (id: string) => patch(`/parents/${id}/delete`),
   changeStatus: (id: string, status: string) =>
     patch(`/parents/${id}/status`, { status }),
@@ -430,8 +518,12 @@ export const timetableApi = {
   remove: (id: string) => patch(`/timetable/${id}/delete`),
   byGroup: (groupId: string) => get(`/timetable/by-group/${groupId}`),
   byRoom: (roomId: string) => get(`/timetable/by-room/${roomId}`),
-  daily: (params?: QueryParams) => get(`/timetable/daily${qs(params)}`),
-  dailyList: (params?: QueryParams) => get(`/timetable/daily/list${qs(params)}`),
+  daily: (params?: QueryParams) =>
+    get(`/timetable/daily${qs(withActiveBranchScope(params, "/timetable/daily") ?? {})}`),
+  dailyList: (params?: QueryParams) =>
+    get(
+      `/timetable/daily/list${qs(withActiveBranchScope(params, "/timetable/daily/list") ?? {})}`,
+    ),
 };
 
 export const staffAttendanceApi = {
@@ -439,7 +531,10 @@ export const staffAttendanceApi = {
   create: (payload: Record<string, unknown>) => post("/staff-attendance", payload),
   bulkCreate: (payload: Record<string, unknown>) =>
     post("/staff-attendance/bulk", payload),
-  stats: (params?: QueryParams) => get(`/staff-attendance/stats${qs(params)}`),
+  stats: (params?: QueryParams) =>
+    get(
+      `/staff-attendance/stats${qs(withActiveBranchScope(params, "/staff-attendance/stats") ?? {})}`,
+    ),
   update: (id: string, payload: Record<string, unknown>) =>
     patch(`/staff-attendance/${id}`, payload),
   remove: (id: string) => patch(`/staff-attendance/${id}/delete`),
@@ -448,7 +543,8 @@ export const staffAttendanceApi = {
 export const ratingsApi = {
   list: (params?: QueryParams) => list("/ratings", params),
   create: (payload: Record<string, unknown>) => post("/ratings", payload),
-  top: (params?: QueryParams) => get(`/ratings/top${qs(params)}`),
+  top: (params?: QueryParams) =>
+    get(`/ratings/top${qs(withActiveBranchScope(params, "/ratings/top") ?? {})}`),
   byStudent: (studentId: string, params?: QueryParams) =>
     list(`/ratings/student/${studentId}`, params),
   update: (id: string, payload: Record<string, unknown>) =>
@@ -502,8 +598,10 @@ export const financeApi = {
       patch(`/finance/expenses/${id}`, payload),
     remove: (id: string) => patch(`/finance/expenses/${id}/delete`),
   },
-  summary: (params?: QueryParams) => get(`/finance/summary${qs(params)}`),
-  cashflow: (params?: QueryParams) => get(`/finance/cashflow${qs(params)}`),
+  summary: (params?: QueryParams) =>
+    get(`/finance/summary${qs(withActiveBranchScope(params, "/finance/summary") ?? {})}`),
+  cashflow: (params?: QueryParams) =>
+    get(`/finance/cashflow${qs(withActiveBranchScope(params, "/finance/cashflow") ?? {})}`),
 };
 
 export const actionLogsApi = {

@@ -1,4 +1,4 @@
-﻿import {
+import {
   Body,
   Controller,
   Get,
@@ -7,15 +7,30 @@
   Post,
   Query,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { Gender, Status } from '@prisma/client';
 import type { Request } from 'express';
 import { BaseQueryDto } from '../../common/dto/base-query.dto';
 import { ChangeStatusDto } from '../../common/dto/change-status.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  MAX_IMAGE_SIZE,
+  validateImage,
+} from '../../common/functions/check.file';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import type { RequestUser } from '../../common/interfaces/request-user.interface';
+import { CloudinaryService } from '../../common/uploads/cloudinary.service';
 import {
   paginatedResponse,
   successResponse,
@@ -26,20 +41,62 @@ import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { StudentsService } from './students.service';
 
+const studentMultipartProperties = {
+  firstName: { type: 'string', example: 'Aziz' },
+  lastName: { type: 'string', example: 'Karimov' },
+  phone: { type: 'string', example: '+998901234567' },
+  email: { type: 'string', example: 'student@academy.uz' },
+  password: { type: 'string', example: 'Student123!' },
+  studentNo: { type: 'string', example: 'ST-1001' },
+  birthDate: { type: 'string', format: 'date-time' },
+  gender: { type: 'string', enum: Object.values(Gender) },
+  joinedAt: { type: 'string', format: 'date-time' },
+  address: { type: 'string', example: 'Toshkent sh.' },
+  branchId: { type: 'string' },
+  status: { type: 'string', enum: Object.values(Status) },
+  parentIds: { type: 'array', items: { type: 'string' } },
+  groupIds: { type: 'array', items: { type: 'string' } },
+  avatarUrl: { type: 'string', format: 'binary' },
+};
+
 @ApiTags('Students')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('students')
 export class StudentsController {
-  constructor(private readonly studentsService: StudentsService) {}
+  constructor(
+    private readonly studentsService: StudentsService,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
 
   @Post()
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: studentMultipartProperties,
+      required: ['firstName', 'lastName', 'branchId'],
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('avatarUrl', { limits: { fileSize: MAX_IMAGE_SIZE } }),
+  )
   @ApiOperation({ summary: 'Oquvchi yaratish' })
   async create(
     @Body() dto: CreateStudentDto,
+    @UploadedFile() avatarFile: Express.Multer.File,
     @CurrentUser() user: RequestUser,
     @Req() request: Request,
   ) {
+    if (avatarFile) {
+      validateImage(avatarFile);
+      const uploaded = await this.cloudinaryService.uploadFile(avatarFile, {
+        resource_type: 'image',
+        folder: 'academy/students',
+      });
+      dto.avatarUrl = uploaded.secure_url;
+    }
+
     const data = await this.studentsService.createStudent(dto, user, request);
     return successResponse('Oquvchi yaratildi', data);
   }
@@ -72,13 +129,33 @@ export class StudentsController {
   }
 
   @Patch(':id')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: studentMultipartProperties,
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('avatarUrl', { limits: { fileSize: MAX_IMAGE_SIZE } }),
+  )
   @ApiOperation({ summary: 'Oquvchini yangilash' })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateStudentDto,
+    @UploadedFile() avatarFile: Express.Multer.File,
     @CurrentUser() user: RequestUser,
     @Req() request: Request,
   ) {
+    if (avatarFile) {
+      validateImage(avatarFile);
+      const uploaded = await this.cloudinaryService.uploadFile(avatarFile, {
+        resource_type: 'image',
+        folder: 'academy/students',
+      });
+      dto.avatarUrl = uploaded.secure_url;
+    }
+
     const data = await this.studentsService.updateStudent(
       id,
       dto,
