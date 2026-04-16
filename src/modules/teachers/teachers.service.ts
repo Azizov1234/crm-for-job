@@ -1,4 +1,4 @@
-﻿import {
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -45,6 +45,7 @@ export class TeachersService {
     const password = dto.password ?? 'Teacher123!';
     const passwordHash =
       await this.bcryptUtilsService.generateHashPass(password);
+    const nextStatus = dto.status ?? Status.ACTIVE;
 
     const teacher = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
@@ -58,6 +59,7 @@ export class TeachersService {
           email: dto.email ?? null,
           passwordHash,
           avatarUrl: dto.avatarUrl ?? null,
+          status: nextStatus,
         },
       });
 
@@ -70,6 +72,7 @@ export class TeachersService {
           salary: dto.salary ?? null,
           hiredAt: dto.hiredAt ? new Date(dto.hiredAt) : null,
           bio: dto.bio ?? null,
+          status: nextStatus,
         },
         include: {
           user: true,
@@ -192,6 +195,11 @@ export class TeachersService {
     request?: Request,
   ) {
     const current = await this.findTeacher(id, actor);
+    if (dto.status === Status.DELETED) {
+      throw new BadRequestException(
+        'DELETED uchun delete endpointdan foydalaning',
+      );
+    }
 
     const branchId = dto.branchId
       ? this.branchScopeService.resolveBranchId(actor, dto.branchId)
@@ -213,6 +221,7 @@ export class TeachersService {
         ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
         ...(dto.email !== undefined ? { email: dto.email } : {}),
         ...(dto.avatarUrl !== undefined ? { avatarUrl: dto.avatarUrl } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
         ...(branchId ? { branchId } : {}),
       };
 
@@ -238,6 +247,7 @@ export class TeachersService {
             ? { hiredAt: dto.hiredAt ? new Date(dto.hiredAt) : null }
             : {}),
           ...(dto.bio !== undefined ? { bio: dto.bio } : {}),
+          ...(dto.status !== undefined ? { status: dto.status } : {}),
         },
         include: {
           user: true,

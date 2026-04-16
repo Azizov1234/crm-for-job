@@ -1,4 +1,4 @@
-﻿import {
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -58,6 +58,7 @@ export class ParentsService {
     const password = dto.password ?? 'Parent123!';
     const passwordHash =
       await this.bcryptUtilsService.generateHashPass(password);
+    const nextStatus = dto.status ?? Status.ACTIVE;
 
     const parent = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
@@ -71,6 +72,7 @@ export class ParentsService {
           email: dto.email ?? null,
           passwordHash,
           avatarUrl: dto.avatarUrl ?? null,
+          status: nextStatus,
         },
       });
 
@@ -81,6 +83,7 @@ export class ParentsService {
           userId: user.id,
           occupation: dto.occupation ?? null,
           address: dto.address ?? null,
+          status: nextStatus,
         },
         include: {
           user: true,
@@ -225,6 +228,11 @@ export class ParentsService {
     request?: Request,
   ) {
     const current = await this.findParent(id, actor);
+    if (dto.status === Status.DELETED) {
+      throw new BadRequestException(
+        'DELETED uchun delete endpointdan foydalaning',
+      );
+    }
     const branchId = dto.branchId
       ? this.branchScopeService.resolveBranchId(actor, dto.branchId)
       : current.branchId;
@@ -245,6 +253,7 @@ export class ParentsService {
         ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
         ...(dto.email !== undefined ? { email: dto.email } : {}),
         ...(dto.avatarUrl !== undefined ? { avatarUrl: dto.avatarUrl } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
         ...(branchId ? { branchId } : {}),
       };
 
@@ -268,6 +277,7 @@ export class ParentsService {
             ? { occupation: dto.occupation }
             : {}),
           ...(dto.address !== undefined ? { address: dto.address } : {}),
+          ...(dto.status !== undefined ? { status: dto.status } : {}),
         },
         include: {
           user: true,

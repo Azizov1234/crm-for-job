@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Gender } from '@prisma/client';
+import { Gender, Status } from '@prisma/client';
 import {
   IsArray,
   IsDateString,
@@ -103,6 +103,11 @@ export class CreateStudentDto {
   @IsOptional()
   @IsString()
   branchId?: string;
+
+  @ApiPropertyOptional({ enum: Status, default: Status.ACTIVE })
+  @IsOptional()
+  @IsEnum(Status)
+  status?: Status;
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()

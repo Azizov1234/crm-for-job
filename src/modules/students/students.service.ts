@@ -1,4 +1,4 @@
-﻿import {
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -74,6 +74,7 @@ export class StudentsService {
     const password = dto.password ?? 'Student123!';
     const passwordHash =
       await this.bcryptUtilsService.generateHashPass(password);
+    const nextStatus = dto.status ?? Status.ACTIVE;
 
     const student = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
@@ -87,6 +88,7 @@ export class StudentsService {
           email: dto.email ?? null,
           passwordHash,
           avatarUrl: dto.avatarUrl ?? null,
+          status: nextStatus,
         },
       });
 
@@ -100,6 +102,7 @@ export class StudentsService {
           gender: dto.gender,
           joinedAt: dto.joinedAt ? new Date(dto.joinedAt) : null,
           address: dto.address ?? null,
+          status: nextStatus,
         },
         include: {
           user: true,
@@ -262,6 +265,11 @@ export class StudentsService {
     request?: Request,
   ) {
     const current = await this.findStudent(id, actor);
+    if (dto.status === Status.DELETED) {
+      throw new BadRequestException(
+        'DELETED uchun delete endpointdan foydalaning',
+      );
+    }
     const branchId = dto.branchId
       ? this.branchScopeService.resolveBranchId(actor, dto.branchId)
       : current.branchId;
@@ -282,6 +290,7 @@ export class StudentsService {
         ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
         ...(dto.email !== undefined ? { email: dto.email } : {}),
         ...(dto.avatarUrl !== undefined ? { avatarUrl: dto.avatarUrl } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
         ...(branchId ? { branchId } : {}),
       };
 
@@ -310,6 +319,7 @@ export class StudentsService {
             ? { joinedAt: dto.joinedAt ? new Date(dto.joinedAt) : null }
             : {}),
           ...(dto.address !== undefined ? { address: dto.address } : {}),
+          ...(dto.status !== undefined ? { status: dto.status } : {}),
         },
         include: {
           user: true,

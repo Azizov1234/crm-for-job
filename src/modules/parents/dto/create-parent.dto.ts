@@ -1,8 +1,10 @@
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Status } from '@prisma/client';
 import {
   IsArray,
   IsEmail,
+  IsEnum,
   IsOptional,
   IsString,
   MinLength,
@@ -85,6 +87,11 @@ export class CreateParentDto {
   @IsOptional()
   @IsString()
   branchId?: string;
+
+  @ApiPropertyOptional({ enum: Status, default: Status.ACTIVE })
+  @IsOptional()
+  @IsEnum(Status)
+  status?: Status;
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()

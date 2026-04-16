@@ -1,5 +1,12 @@
-﻿import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Status } from '@prisma/client';
+import {
+  IsEmail,
+  IsEnum,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
 
 export class CreateAdminDto {
   @ApiProperty()
@@ -40,4 +47,9 @@ export class CreateAdminDto {
   @IsOptional()
   @IsString()
   branchId?: string;
+
+  @ApiPropertyOptional({ enum: Status, default: Status.ACTIVE })
+  @IsOptional()
+  @IsEnum(Status)
+  status?: Status;
 }

@@ -1,8 +1,10 @@
-﻿import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Status } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsDateString,
   IsEmail,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -64,4 +66,9 @@ export class CreateTeacherDto {
   @IsOptional()
   @IsString()
   branchId?: string;
+
+  @ApiPropertyOptional({ enum: Status, default: Status.ACTIVE })
+  @IsOptional()
+  @IsEnum(Status)
+  status?: Status;
 }

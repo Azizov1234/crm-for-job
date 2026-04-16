@@ -1,4 +1,4 @@
-﻿import {
+import {
   BadRequestException,
   ForbiddenException,
   Injectable,
@@ -52,6 +52,7 @@ export class AdminsService {
     const password = dto.password ?? 'Admin123!';
     const passwordHash =
       await this.bcryptUtilsService.generateHashPass(password);
+    const nextStatus = dto.status ?? Status.ACTIVE;
 
     const admin = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
@@ -65,6 +66,7 @@ export class AdminsService {
           email: dto.email ?? null,
           passwordHash,
           avatarUrl: dto.avatarUrl ?? null,
+          status: nextStatus,
         },
       });
 
@@ -74,6 +76,7 @@ export class AdminsService {
           branchId,
           userId: user.id,
           notes: dto.notes ?? null,
+          status: nextStatus,
         },
         include: {
           user: true,
@@ -193,6 +196,11 @@ export class AdminsService {
     request?: Request,
   ) {
     const current = await this.findAdmin(id, actor);
+    if (dto.status === Status.DELETED) {
+      throw new BadRequestException(
+        'DELETED uchun delete endpointdan foydalaning',
+      );
+    }
 
     const branchId = dto.branchId
       ? this.branchScopeService.resolveBranchId(actor, dto.branchId)
@@ -214,6 +222,7 @@ export class AdminsService {
         ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
         ...(dto.email !== undefined ? { email: dto.email } : {}),
         ...(dto.avatarUrl !== undefined ? { avatarUrl: dto.avatarUrl } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
         ...(branchId ? { branchId } : {}),
       };
 
@@ -234,6 +243,7 @@ export class AdminsService {
         data: {
           ...(branchId ? { branchId } : {}),
           ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+          ...(dto.status !== undefined ? { status: dto.status } : {}),
         },
         include: {
           user: true,
