@@ -72,6 +72,16 @@ export default function StudentsPage() {
   const [editDraft, setEditDraft] = useState<StudentDraft>(EMPTY_STUDENT_DRAFT);
 
   const totalCount = useMemo(() => students.length, [students]);
+  const editableStatusOptions = useMemo<Status[]>(() => {
+    if (
+      editingInitialStatus &&
+      !MUTABLE_STATUS_OPTIONS.includes(editingInitialStatus)
+    ) {
+      return [...MUTABLE_STATUS_OPTIONS, editingInitialStatus];
+    }
+
+    return MUTABLE_STATUS_OPTIONS;
+  }, [editingInitialStatus]);
 
   async function loadStudents() {
     try {
@@ -623,7 +633,7 @@ export default function StudentsPage() {
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
-                    {MUTABLE_STATUS_OPTIONS.map((option) => (
+                    {editableStatusOptions.map((option) => (
                       <SelectItem key={option} value={option}>
                         {option}
                       </SelectItem>

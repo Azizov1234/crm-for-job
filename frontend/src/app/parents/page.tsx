@@ -128,6 +128,16 @@ export default function ParentsPage() {
   const [editDraft, setEditDraft] = useState<ParentDraft>(EMPTY_PARENT_DRAFT);
 
   const totalCount = useMemo(() => parents.length, [parents]);
+  const editableStatusOptions = useMemo<Status[]>(() => {
+    if (
+      editingInitialStatus &&
+      !MUTABLE_STATUS_OPTIONS.includes(editingInitialStatus)
+    ) {
+      return [...MUTABLE_STATUS_OPTIONS, editingInitialStatus];
+    }
+
+    return MUTABLE_STATUS_OPTIONS;
+  }, [editingInitialStatus]);
 
   async function loadParents() {
     try {
@@ -710,7 +720,7 @@ export default function ParentsPage() {
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
-                    {MUTABLE_STATUS_OPTIONS.map((option) => (
+                    {editableStatusOptions.map((option) => (
                       <SelectItem key={option} value={option}>
                         {option}
                       </SelectItem>

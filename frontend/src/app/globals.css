@@ -264,6 +264,10 @@
     color: #9ba8c8;
   }
 
+  .soft-input[data-slot="select-trigger"] {
+    width: 100%;
+  }
+
   .dark .soft-input {
     background: rgba(255 255 255 / 0.05);
     border-color: rgba(255 255 255 / 0.1);

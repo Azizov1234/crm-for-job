@@ -139,6 +139,16 @@ export default function AdminsPage() {
   const [attachNotes, setAttachNotes] = useState("");
 
   const totalCount = useMemo(() => admins.length, [admins]);
+  const editableStatusOptions = useMemo<Status[]>(() => {
+    if (
+      editingInitialStatus &&
+      !MUTABLE_STATUS_OPTIONS.includes(editingInitialStatus)
+    ) {
+      return [...MUTABLE_STATUS_OPTIONS, editingInitialStatus];
+    }
+
+    return MUTABLE_STATUS_OPTIONS;
+  }, [editingInitialStatus]);
 
   async function loadAdmins() {
     try {
@@ -805,7 +815,7 @@ export default function AdminsPage() {
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
-                    {MUTABLE_STATUS_OPTIONS.map((option) => (
+                    {editableStatusOptions.map((option) => (
                       <SelectItem key={option} value={option}>
                         {option}
                       </SelectItem>
