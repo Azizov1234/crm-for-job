@@ -64,6 +64,7 @@ export default function StudentsPage() {
   const [openEditModal, setOpenEditModal] = useState(false);
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
   const [editingInitialStatus, setEditingInitialStatus] = useState<Status>("ACTIVE");
+  const [editingInitialDraft, setEditingInitialDraft] = useState<StudentDraft | null>(null);
   const [parents, setParents] = useState<Option[]>([]);
   const [groups, setGroups] = useState<Option[]>([]);
   const [branches, setBranches] = useState<Option[]>([]);
@@ -179,9 +180,7 @@ export default function StudentsPage() {
 
       const statusValue = (String(response.status ?? "ACTIVE") as Status) ?? "ACTIVE";
 
-      setEditingStudentId(id);
-      setEditingInitialStatus(statusValue);
-      setEditDraft({
+      const nextDraft: StudentDraft = {
         firstName: String(user.firstName ?? ""),
         lastName: String(user.lastName ?? ""),
         phone: String(user.phone ?? ""),
@@ -192,7 +191,12 @@ export default function StudentsPage() {
         status: statusValue,
         parentIds: [],
         groupIds: [],
-      });
+      };
+
+      setEditingStudentId(id);
+      setEditingInitialStatus(statusValue);
+      setEditingInitialDraft(nextDraft);
+      setEditDraft(nextDraft);
       setOpenEditModal(true);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "O'quvchi ma'lumotini olishda xatolik");
@@ -201,6 +205,7 @@ export default function StudentsPage() {
 
   async function updateStudent() {
     if (!editingStudentId) return;
+    if (!editingInitialDraft) return;
 
     if (!editDraft.firstName.trim() || !editDraft.lastName.trim()) {
       toast.error("Ism va familiya majburiy");
@@ -213,23 +218,42 @@ export default function StudentsPage() {
     }
 
     try {
-      await studentsApi.update(editingStudentId, {
-        firstName: editDraft.firstName.trim(),
-        lastName: editDraft.lastName.trim(),
-        phone: editDraft.phone.trim() || undefined,
-        email: editDraft.email.trim() || undefined,
-        studentNo: editDraft.studentNo.trim() || undefined,
-        avatarUrl: editDraft.avatarUrl.trim() || undefined,
-        branchId: editDraft.branchId,
-      });
+      const profilePayload: Record<string, unknown> = {};
+      const firstName = editDraft.firstName.trim();
+      const lastName = editDraft.lastName.trim();
+      const phone = editDraft.phone.trim();
+      const email = editDraft.email.trim();
+      const studentNo = editDraft.studentNo.trim();
+      const avatarUrl = editDraft.avatarUrl.trim();
 
-      if (editDraft.status !== editingInitialStatus) {
+      if (firstName !== editingInitialDraft.firstName.trim()) profilePayload.firstName = firstName;
+      if (lastName !== editingInitialDraft.lastName.trim()) profilePayload.lastName = lastName;
+      if (phone !== editingInitialDraft.phone.trim()) profilePayload.phone = phone || undefined;
+      if (email !== editingInitialDraft.email.trim()) profilePayload.email = email || undefined;
+      if (studentNo !== editingInitialDraft.studentNo.trim()) profilePayload.studentNo = studentNo || undefined;
+      if (avatarUrl !== editingInitialDraft.avatarUrl.trim()) profilePayload.avatarUrl = avatarUrl || undefined;
+      if (editDraft.branchId !== editingInitialDraft.branchId) profilePayload.branchId = editDraft.branchId;
+
+      const hasProfileChanges = Object.keys(profilePayload).length > 0;
+      const hasStatusChanges = editDraft.status !== editingInitialStatus;
+
+      if (!hasProfileChanges && !hasStatusChanges) {
+        toast.info("O'zgarish topilmadi");
+        return;
+      }
+
+      if (hasProfileChanges) {
+        await studentsApi.update(editingStudentId, profilePayload);
+      }
+
+      if (hasStatusChanges) {
         await studentsApi.changeStatus(editingStudentId, editDraft.status);
       }
 
       toast.success("O'quvchi yangilandi");
       setOpenEditModal(false);
       setEditingStudentId(null);
+      setEditingInitialDraft(null);
       await loadStudents();
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Yangilashda xatolik");
@@ -520,6 +544,7 @@ export default function StudentsPage() {
         onClose={() => {
           setOpenEditModal(false);
           setEditingStudentId(null);
+          setEditingInitialDraft(null);
         }}
         title="O'quvchini yangilash"
         subtitle="Profil ma'lumotlarini tahrirlash"

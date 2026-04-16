@@ -67,6 +67,8 @@ export default function UsersPage() {
   const [openEditCard, setOpenEditCard] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState(EMPTY_DRAFT);
+  const [editingInitialDraft, setEditingInitialDraft] = useState<typeof EMPTY_DRAFT | null>(null);
+  const [editingInitialStatus, setEditingInitialStatus] = useState<Status>("ACTIVE");
 
   async function loadUsers() {
     try {
@@ -157,8 +159,7 @@ export default function UsersPage() {
   async function openEditUser(user: User) {
     try {
       const data = await usersApi.getById(user.id);
-      setEditingUserId(user.id);
-      setEditDraft({
+      const nextDraft = {
         firstName: String(data.firstName ?? ""),
         lastName: String(data.lastName ?? ""),
         email: String(data.email ?? ""),
@@ -168,7 +169,11 @@ export default function UsersPage() {
         status: (String(data.status ?? "ACTIVE") as Status) ?? "ACTIVE",
         branchId: String(data.branchId ?? getActiveBranchId() ?? ""),
         avatarUrl: String(data.avatarUrl ?? ""),
-      });
+      };
+      setEditingUserId(user.id);
+      setEditingInitialDraft(nextDraft);
+      setEditingInitialStatus(nextDraft.status);
+      setEditDraft(nextDraft);
       setOpenEditCard(true);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "User ma'lumotini olishda xatolik");
@@ -177,6 +182,7 @@ export default function UsersPage() {
 
   async function updateUser() {
     if (!editingUserId) return;
+    if (!editingInitialDraft) return;
 
     if (!editDraft.firstName.trim() || !editDraft.lastName.trim()) {
       toast.error("Ism va familiya majburiy");
@@ -184,20 +190,44 @@ export default function UsersPage() {
     }
 
     try {
-      await usersApi.update(editingUserId, {
-        firstName: editDraft.firstName.trim(),
-        lastName: editDraft.lastName.trim(),
-        email: editDraft.email.trim() || undefined,
-        phone: editDraft.phone.trim() || undefined,
-        password: editDraft.password.trim() || undefined,
-        role: editDraft.role,
-        status: editDraft.status,
-        branchId: editDraft.branchId || undefined,
-        avatarUrl: editDraft.avatarUrl.trim() || undefined,
-      });
+      const payload: Record<string, unknown> = {};
+      const firstName = editDraft.firstName.trim();
+      const lastName = editDraft.lastName.trim();
+      const email = editDraft.email.trim();
+      const phone = editDraft.phone.trim();
+      const avatarUrl = editDraft.avatarUrl.trim();
+
+      if (firstName !== editingInitialDraft.firstName.trim()) payload.firstName = firstName;
+      if (lastName !== editingInitialDraft.lastName.trim()) payload.lastName = lastName;
+      if (email !== editingInitialDraft.email.trim()) payload.email = email || undefined;
+      if (phone !== editingInitialDraft.phone.trim()) payload.phone = phone || undefined;
+      if (avatarUrl !== editingInitialDraft.avatarUrl.trim()) payload.avatarUrl = avatarUrl || undefined;
+      if (editDraft.role !== editingInitialDraft.role) payload.role = editDraft.role;
+      if ((editDraft.branchId || "") !== (editingInitialDraft.branchId || "")) {
+        payload.branchId = editDraft.branchId || undefined;
+      }
+      if (editDraft.password.trim()) payload.password = editDraft.password.trim();
+
+      const hasProfileChanges = Object.keys(payload).length > 0;
+      const hasStatusChanges = editDraft.status !== editingInitialStatus;
+
+      if (!hasProfileChanges && !hasStatusChanges) {
+        toast.info("O'zgarish topilmadi");
+        return;
+      }
+
+      if (hasProfileChanges) {
+        await usersApi.update(editingUserId, payload);
+      }
+
+      if (hasStatusChanges) {
+        await usersApi.changeStatus(editingUserId, editDraft.status);
+      }
+
       toast.success("Foydalanuvchi yangilandi");
       setOpenEditCard(false);
       setEditingUserId(null);
+      setEditingInitialDraft(null);
       await loadUsers();
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Yangilash amalga oshmadi");
@@ -452,6 +482,7 @@ export default function UsersPage() {
                 onClick={() => {
                   setOpenEditCard(false);
                   setEditingUserId(null);
+                  setEditingInitialDraft(null);
                 }}
               >
                 Yopish

@@ -130,6 +130,7 @@ export default function AdminsPage() {
   const [editingAdminId, setEditingAdminId] = useState<string | null>(null);
   const [editingInitialStatus, setEditingInitialStatus] = useState<Status>("ACTIVE");
   const [editingInitialRole, setEditingInitialRole] = useState<AdminRole>("ADMIN");
+  const [editingInitialDraft, setEditingInitialDraft] = useState<AdminDraft | null>(null);
   const [draft, setDraft] = useState<AdminDraft>(EMPTY_ADMIN_DRAFT);
   const [editDraft, setEditDraft] = useState<AdminDraft>(EMPTY_ADMIN_DRAFT);
   const [branches, setBranches] = useState<Option[]>([]);
@@ -279,10 +280,7 @@ export default function AdminsPage() {
       const role = normalizeAdminRole(asString(user.role));
       const nextStatus = (asString(item.status) || "ACTIVE") as Status;
 
-      setEditingAdminId(id);
-      setEditingInitialStatus(nextStatus);
-      setEditingInitialRole(role);
-      setEditDraft({
+      const nextDraft: AdminDraft = {
         firstName: asString(user.firstName),
         lastName: asString(user.lastName),
         phone: asString(user.phone),
@@ -293,7 +291,13 @@ export default function AdminsPage() {
         branchId: asString(item.branchId) || getActiveBranchId() || branches[0]?.id || "",
         status: nextStatus,
         role,
-      });
+      };
+
+      setEditingAdminId(id);
+      setEditingInitialStatus(nextStatus);
+      setEditingInitialRole(role);
+      setEditingInitialDraft(nextDraft);
+      setEditDraft(nextDraft);
       setOpenEditModal(true);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Admin ma'lumotini olishda xatolik");
@@ -302,6 +306,7 @@ export default function AdminsPage() {
 
   async function updateAdmin() {
     if (!editingAdminId) return;
+    if (!editingInitialDraft) return;
 
     if (!editDraft.firstName.trim() || !editDraft.lastName.trim()) {
       toast.error("Ism va familiya majburiy");
@@ -314,28 +319,48 @@ export default function AdminsPage() {
     }
 
     try {
-      await adminsApi.update(editingAdminId, {
-        firstName: editDraft.firstName.trim(),
-        lastName: editDraft.lastName.trim(),
-        phone: editDraft.phone.trim() || undefined,
-        email: editDraft.email.trim() || undefined,
-        password: editDraft.password.trim() || undefined,
-        notes: editDraft.notes.trim() || undefined,
-        avatarUrl: editDraft.avatarUrl.trim() || undefined,
-        branchId: editDraft.branchId,
-      });
+      const profilePayload: Record<string, unknown> = {};
+      const firstName = editDraft.firstName.trim();
+      const lastName = editDraft.lastName.trim();
+      const phone = editDraft.phone.trim();
+      const email = editDraft.email.trim();
+      const notes = editDraft.notes.trim();
+      const avatarUrl = editDraft.avatarUrl.trim();
 
-      if (editDraft.role !== editingInitialRole) {
+      if (firstName !== editingInitialDraft.firstName.trim()) profilePayload.firstName = firstName;
+      if (lastName !== editingInitialDraft.lastName.trim()) profilePayload.lastName = lastName;
+      if (phone !== editingInitialDraft.phone.trim()) profilePayload.phone = phone || undefined;
+      if (email !== editingInitialDraft.email.trim()) profilePayload.email = email || undefined;
+      if (notes !== editingInitialDraft.notes.trim()) profilePayload.notes = notes || undefined;
+      if (avatarUrl !== editingInitialDraft.avatarUrl.trim()) profilePayload.avatarUrl = avatarUrl || undefined;
+      if (editDraft.branchId !== editingInitialDraft.branchId) profilePayload.branchId = editDraft.branchId;
+      if (editDraft.password.trim()) profilePayload.password = editDraft.password.trim();
+
+      const hasProfileChanges = Object.keys(profilePayload).length > 0;
+      const hasRoleChanges = editDraft.role !== editingInitialRole;
+      const hasStatusChanges = editDraft.status !== editingInitialStatus;
+
+      if (!hasProfileChanges && !hasRoleChanges && !hasStatusChanges) {
+        toast.info("O'zgarish topilmadi");
+        return;
+      }
+
+      if (hasProfileChanges) {
+        await adminsApi.update(editingAdminId, profilePayload);
+      }
+
+      if (hasRoleChanges) {
         await adminsApi.updateRole(editingAdminId, editDraft.role);
       }
 
-      if (editDraft.status !== editingInitialStatus) {
+      if (hasStatusChanges) {
         await adminsApi.changeStatus(editingAdminId, editDraft.status);
       }
 
       toast.success("Admin yangilandi");
       setOpenEditModal(false);
       setEditingAdminId(null);
+      setEditingInitialDraft(null);
       await loadAdmins();
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Yangilashda xatolik");
@@ -679,6 +704,7 @@ export default function AdminsPage() {
         onClose={() => {
           setOpenEditModal(false);
           setEditingAdminId(null);
+          setEditingInitialDraft(null);
         }}
         title="Adminni yangilash"
         subtitle="Admin ma'lumotlarini tahrirlash"

@@ -123,6 +123,7 @@ export default function ParentsPage() {
   const [openEditModal, setOpenEditModal] = useState(false);
   const [editingParentId, setEditingParentId] = useState<string | null>(null);
   const [editingInitialStatus, setEditingInitialStatus] = useState<Status>("ACTIVE");
+  const [editingInitialDraft, setEditingInitialDraft] = useState<ParentDraft | null>(null);
   const [draft, setDraft] = useState<ParentDraft>(EMPTY_PARENT_DRAFT);
   const [editDraft, setEditDraft] = useState<ParentDraft>(EMPTY_PARENT_DRAFT);
 
@@ -256,9 +257,7 @@ export default function ParentsPage() {
 
       const statusValue = (String(response.status ?? "ACTIVE") as Status) ?? "ACTIVE";
 
-      setEditingParentId(id);
-      setEditingInitialStatus(statusValue);
-      setEditDraft({
+      const nextDraft: ParentDraft = {
         firstName: String(user.firstName ?? ""),
         lastName: String(user.lastName ?? ""),
         phone: String(user.phone ?? ""),
@@ -270,7 +269,12 @@ export default function ParentsPage() {
         branchId: String(response.branchId ?? getActiveBranchId() ?? branches[0]?.id ?? ""),
         status: statusValue,
         studentIds: linkedStudents,
-      });
+      };
+
+      setEditingParentId(id);
+      setEditingInitialStatus(statusValue);
+      setEditingInitialDraft(nextDraft);
+      setEditDraft(nextDraft);
       setOpenEditModal(true);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Ota-ona ma'lumotini olishda xatolik");
@@ -279,6 +283,7 @@ export default function ParentsPage() {
 
   async function updateParent() {
     if (!editingParentId) return;
+    if (!editingInitialDraft) return;
 
     if (!editDraft.firstName.trim() || !editDraft.lastName.trim()) {
       toast.error("Ism va familiya majburiy");
@@ -291,19 +296,38 @@ export default function ParentsPage() {
     }
 
     try {
-      await parentsApi.update(editingParentId, {
-        firstName: editDraft.firstName.trim(),
-        lastName: editDraft.lastName.trim(),
-        phone: editDraft.phone.trim() || undefined,
-        email: editDraft.email.trim() || undefined,
-        password: editDraft.password.trim() || undefined,
-        occupation: editDraft.occupation.trim() || undefined,
-        address: editDraft.address.trim() || undefined,
-        avatarUrl: editDraft.avatarUrl.trim() || undefined,
-        branchId: editDraft.branchId,
-      });
+      const profilePayload: Record<string, unknown> = {};
+      const firstName = editDraft.firstName.trim();
+      const lastName = editDraft.lastName.trim();
+      const phone = editDraft.phone.trim();
+      const email = editDraft.email.trim();
+      const occupation = editDraft.occupation.trim();
+      const address = editDraft.address.trim();
+      const avatarUrl = editDraft.avatarUrl.trim();
 
-      if (editDraft.status !== editingInitialStatus) {
+      if (firstName !== editingInitialDraft.firstName.trim()) profilePayload.firstName = firstName;
+      if (lastName !== editingInitialDraft.lastName.trim()) profilePayload.lastName = lastName;
+      if (phone !== editingInitialDraft.phone.trim()) profilePayload.phone = phone || undefined;
+      if (email !== editingInitialDraft.email.trim()) profilePayload.email = email || undefined;
+      if (occupation !== editingInitialDraft.occupation.trim()) profilePayload.occupation = occupation || undefined;
+      if (address !== editingInitialDraft.address.trim()) profilePayload.address = address || undefined;
+      if (avatarUrl !== editingInitialDraft.avatarUrl.trim()) profilePayload.avatarUrl = avatarUrl || undefined;
+      if (editDraft.branchId !== editingInitialDraft.branchId) profilePayload.branchId = editDraft.branchId;
+      if (editDraft.password.trim()) profilePayload.password = editDraft.password.trim();
+
+      const hasProfileChanges = Object.keys(profilePayload).length > 0;
+      const hasStatusChanges = editDraft.status !== editingInitialStatus;
+
+      if (!hasProfileChanges && !hasStatusChanges) {
+        toast.info("O'zgarish topilmadi");
+        return;
+      }
+
+      if (hasProfileChanges) {
+        await parentsApi.update(editingParentId, profilePayload);
+      }
+
+      if (hasStatusChanges) {
         await parentsApi.changeStatus(editingParentId, editDraft.status);
       }
 
@@ -314,6 +338,7 @@ export default function ParentsPage() {
       toast.success("Ota-ona yangilandi");
       setOpenEditModal(false);
       setEditingParentId(null);
+      setEditingInitialDraft(null);
       await loadParents();
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Yangilashda xatolik");
@@ -598,6 +623,7 @@ export default function ParentsPage() {
         onClose={() => {
           setOpenEditModal(false);
           setEditingParentId(null);
+          setEditingInitialDraft(null);
         }}
         title="Ota-onani yangilash"
         subtitle="Profil va statusni tahrirlash"

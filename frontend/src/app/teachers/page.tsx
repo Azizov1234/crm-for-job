@@ -86,6 +86,7 @@ export default function TeachersPage() {
   const [openEditModal, setOpenEditModal] = useState(false);
   const [editingTeacherId, setEditingTeacherId] = useState<string | null>(null);
   const [editingInitialStatus, setEditingInitialStatus] = useState<Status>("ACTIVE");
+  const [editingInitialDraft, setEditingInitialDraft] = useState<TeacherDraft | null>(null);
 
   const [draft, setDraft] = useState<TeacherDraft>(EMPTY_TEACHER_DRAFT);
   const [editDraft, setEditDraft] = useState<TeacherDraft>(EMPTY_TEACHER_DRAFT);
@@ -184,10 +185,7 @@ export default function TeachersPage() {
       const response = await teachersApi.getById(id);
       const user = (response.user ?? {}) as Record<string, unknown>;
       const statusValue = (String(response.status ?? "ACTIVE") as Status) ?? "ACTIVE";
-
-      setEditingTeacherId(id);
-      setEditingInitialStatus(statusValue);
-      setEditDraft({
+      const nextDraft: TeacherDraft = {
         firstName: String(user.firstName ?? ""),
         lastName: String(user.lastName ?? ""),
         phone: String(user.phone ?? ""),
@@ -200,7 +198,12 @@ export default function TeachersPage() {
         avatarUrl: String(user.avatarUrl ?? ""),
         branchId: String(response.branchId ?? getActiveBranchId() ?? branches[0]?.id ?? ""),
         status: statusValue,
-      });
+      };
+
+      setEditingTeacherId(id);
+      setEditingInitialStatus(statusValue);
+      setEditingInitialDraft(nextDraft);
+      setEditDraft(nextDraft);
       setOpenEditModal(true);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Ma'lumotni olishda xatolik");
@@ -209,6 +212,7 @@ export default function TeachersPage() {
 
   async function updateTeacher() {
     if (!editingTeacherId) return;
+    if (!editingInitialDraft) return;
 
     if (!editDraft.firstName.trim() || !editDraft.lastName.trim()) {
       toast.error("Ism va familiya majburiy");
@@ -221,27 +225,49 @@ export default function TeachersPage() {
     }
 
     try {
-      await teachersApi.update(editingTeacherId, {
-        firstName: editDraft.firstName.trim(),
-        lastName: editDraft.lastName.trim(),
-        phone: editDraft.phone.trim() || undefined,
-        email: editDraft.email.trim() || undefined,
-        password: editDraft.password.trim() || undefined,
-        specialty: editDraft.specialty.trim() || undefined,
-        salary: editDraft.salary ? Number(editDraft.salary) : undefined,
-        hiredAt: editDraft.hiredAt || undefined,
-        bio: editDraft.bio.trim() || undefined,
-        avatarUrl: editDraft.avatarUrl.trim() || undefined,
-        branchId: editDraft.branchId,
-      });
+      const profilePayload: Record<string, unknown> = {};
+      const firstName = editDraft.firstName.trim();
+      const lastName = editDraft.lastName.trim();
+      const phone = editDraft.phone.trim();
+      const email = editDraft.email.trim();
+      const specialty = editDraft.specialty.trim();
+      const bio = editDraft.bio.trim();
+      const avatarUrl = editDraft.avatarUrl.trim();
 
-      if (editDraft.status !== editingInitialStatus) {
+      if (firstName !== editingInitialDraft.firstName.trim()) profilePayload.firstName = firstName;
+      if (lastName !== editingInitialDraft.lastName.trim()) profilePayload.lastName = lastName;
+      if (phone !== editingInitialDraft.phone.trim()) profilePayload.phone = phone || undefined;
+      if (email !== editingInitialDraft.email.trim()) profilePayload.email = email || undefined;
+      if (specialty !== editingInitialDraft.specialty.trim()) profilePayload.specialty = specialty || undefined;
+      if (bio !== editingInitialDraft.bio.trim()) profilePayload.bio = bio || undefined;
+      if (avatarUrl !== editingInitialDraft.avatarUrl.trim()) profilePayload.avatarUrl = avatarUrl || undefined;
+      if (editDraft.salary.trim() !== editingInitialDraft.salary.trim()) {
+        profilePayload.salary = editDraft.salary ? Number(editDraft.salary) : undefined;
+      }
+      if (editDraft.hiredAt !== editingInitialDraft.hiredAt) profilePayload.hiredAt = editDraft.hiredAt || undefined;
+      if (editDraft.branchId !== editingInitialDraft.branchId) profilePayload.branchId = editDraft.branchId;
+      if (editDraft.password.trim()) profilePayload.password = editDraft.password.trim();
+
+      const hasProfileChanges = Object.keys(profilePayload).length > 0;
+      const hasStatusChanges = editDraft.status !== editingInitialStatus;
+
+      if (!hasProfileChanges && !hasStatusChanges) {
+        toast.info("O'zgarish topilmadi");
+        return;
+      }
+
+      if (hasProfileChanges) {
+        await teachersApi.update(editingTeacherId, profilePayload);
+      }
+
+      if (hasStatusChanges) {
         await teachersApi.changeStatus(editingTeacherId, editDraft.status);
       }
 
       toast.success("O'qituvchi yangilandi");
       setOpenEditModal(false);
       setEditingTeacherId(null);
+      setEditingInitialDraft(null);
       await loadTeachers();
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Yangilashda xatolik");
@@ -551,6 +577,7 @@ export default function TeachersPage() {
         onClose={() => {
           setOpenEditModal(false);
           setEditingTeacherId(null);
+          setEditingInitialDraft(null);
         }}
         title="O'qituvchini yangilash"
         subtitle="Mavjud yozuvni tahrirlash"
